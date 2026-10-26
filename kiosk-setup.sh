@@ -20,7 +20,7 @@ for i in \$(seq 60); do
 done
 # no incognito: the clock keeps its settings in the browser profile
 exec chromium --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run \\
-  --password-store=basic --hide-crash-restore-bubble --disable-session-crashed-bubble "\$URL"
+  --password-store=basic --disk-cache-dir=/dev/shm/gclock-cache --hide-crash-restore-bubble --disable-session-crashed-bubble "\$URL"
 EOF
 chmod +x ~/gclock-kiosk.sh
 

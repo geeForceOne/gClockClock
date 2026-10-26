@@ -1,0 +1,841 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClockClock 24</title>
+<style>
+  :root {
+    --page: #000000;
+    --face: #000000;
+    --rim: #555555;
+    --hand: #ffffff;
+    --text: #bbbbbb;
+    --muted: #666666;
+    --line: #333333;
+    /* clock size: 8 clocks across, 3 down, fit the window */
+    --s: min(calc((100vw - 48px) / 8), calc((100vh - 48px) / 3));
+  }
+  /* whole, even pixels for clock size and hand thickness, so every clock's centre and every
+     hand edge lands on the same pixel grid and joined hands line up with no visible seam */
+  @supports (width: round(down, 1.5px, 2px)) {
+    :root { --s: round(down, min(calc((100vw - 48px) / 8), calc((100vh - 48px) / 3)), 2px); }
+    .clock24 .face { --t: round(calc(var(--s) * 0.05), 2px); }
+    /* centred like the body's flexbox would, but on a whole pixel so edges stay crisp */
+    .clock24 {
+      position: absolute;
+      left: round(down, calc((100vw - var(--s) * 8) / 2), 1px);
+      top: round(down, calc((100vh - var(--s) * 3) / 2), 1px);
+    }
+  }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--page);
+    color: var(--text);
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  /* the mouse cursor hides after a few seconds without movement (kiosk screens) */
+  body.idle, body.idle * { cursor: none !important; }
+  /* the first clock opens the options, the last one plays a crazy show */
+  .face.settings-trigger { cursor: pointer; }
+  .clock24 { display: flex; }
+  .digit {
+    display: grid;
+    grid-template-columns: repeat(2, var(--s));
+    grid-template-rows: repeat(3, var(--s));
+  }
+  .face {
+    position: relative;
+    box-sizing: border-box;
+    width: var(--s);
+    height: var(--s);
+    border-radius: 50%;
+    background: var(--face);
+    border: 0.5px solid var(--rim);
+    /* hand thickness: 2px rect + 8px stroke on a 200px clock */
+    --t: calc(var(--s) * 0.05);
+  }
+  .hand {
+    position: absolute;
+    top: calc(50% - var(--t) / 2);
+    left: calc(50% - var(--t) / 2);
+    height: var(--t);
+    border-radius: calc(var(--t) / 2);
+    background: var(--hand);
+    transform-origin: calc(var(--t) / 2) 50%;
+    transition: transform 8s cubic-bezier(0.3333, 0.6667, 0.6667, 1), opacity 2s ease;
+    z-index: 1; /* reaching hands paint over the neighbouring face */
+  }
+  .face.blank .hand { opacity: 0; }
+  /* Real face move: 12 hour lines round the rim */
+  .face::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: repeating-conic-gradient(from -0.75deg, var(--muted) 0 1.5deg, transparent 1.5deg 30deg);
+    mask: radial-gradient(closest-side, transparent 78%, #000 78% 93%, transparent 93%);
+    opacity: 0;
+    transition: opacity 0.6s ease;
+    pointer-events: none;
+  }
+  .face.dial::before { opacity: 1; }
+  .hand.minute { width: calc(var(--s) * 0.48 + var(--t) / 2); }
+  .hand.hour   { width: calc(var(--s) * 0.425 + var(--t) / 2); }
+  /* magnet: reach all the way to the neighbour's centre, so the stroke is one bar */
+  .hand.reach  { width: calc(var(--s) + var(--t)); }
+  /* magnet: the neighbour's hand reaches over this one, which shrinks to its pivot dot */
+  .hand.tucked { width: var(--t); }
+  /* billiard: hands of the two cue-stick clocks stretch into the stick */
+  .hand.stick  { width: calc(var(--s) * 1.1 + var(--t)); }
+  .no-anim .hand { transition: none !important; }
+
+  /* options dialog: sits low on the screen so the clock stays visible for previews */
+  dialog {
+    background: #0d0d0d;
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin: auto auto 16px;
+    /* as small as the buttons allow */
+    width: fit-content;
+    max-width: calc(100vw - 16px);
+    box-sizing: border-box;
+    font-size: 12px;
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
+  .options {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 12px;
+    align-items: center;
+  }
+  .options .label { color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; font-size: 10px; }
+  .group { display: flex; flex-wrap: wrap; gap: 4px; }
+  .opt {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 3px 10px;
+    font: inherit;
+    cursor: pointer;
+  }
+  .opt:hover { border-color: var(--rim); }
+  .opt[aria-pressed="true"] { background: var(--hand); color: var(--page); border-color: var(--hand); }
+  .row-end { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .divider { grid-column: 1 / -1; width: 100%; border: none; border-top: 1px solid var(--line); margin: 2px 0; }
+  input[type="range"] { accent-color: var(--hand); width: 120px; height: 14px; margin: 0; }
+  @media (max-width: 600px) {
+    .options { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="clock24 no-anim" id="clock"></div>
+
+<dialog id="settings" aria-label="Animation">
+<div class="options" id="options">
+  <span class="label">Path</span>
+  <div class="group" data-key="path"></div>
+  <span class="label">Easing</span>
+  <div class="group" data-key="easing"></div>
+  <span class="label">Wave</span>
+  <div class="group" data-key="wave"></div>
+  <span class="label">Magnet</span>
+  <div class="group" data-key="magnet"></div>
+  <span class="label">Faces</span>
+  <div class="group" data-key="faces"></div>
+  <span class="label">Duration</span>
+  <div class="row-end">
+    <input type="range" id="duration" min="2" max="16" step="1">
+    <span id="durationValue"></span>
+    <button class="opt" id="preview" type="button">Preview</button>
+  </div>
+  <hr class="divider">
+  <span class="label">Crazy</span>
+  <div class="row-end">
+    <div class="group" data-key="crazy"></div>
+    <button class="opt" id="goCrazy" type="button">Go crazy</button>
+  </div>
+  <span class="label">Show</span>
+  <div class="group" data-key="show"></div>
+</div>
+</dialog>
+
+<script>
+  // Hand poses per digit, clocks in row-major order (2 wide, 3 high). From Digit.cs.
+  const DIGITS = [
+    [[6, 15], [9, 30], [6, 0], [0, 30], [3, 0], [0, 45]],                   // 0
+    [[7.5, 37.5], [6, 30], [7.5, 37.5], [6, 0], [7.5, 37.5], [0, 0]],       // 1
+    [[3, 15], [9, 30], [6, 15], [0, 45], [0, 15], [9, 45]],                 // 2
+    [[3, 15], [9, 30], [3, 15], [9, 0], [3, 15], [9, 0]],                   // 3
+    [[6, 30], [6, 30], [0, 15], [6, 0], [7.5, 37.5], [0, 0]],               // 4
+    [[6, 15], [9, 45], [0, 15], [6, 45], [3, 15], [0, 45]],                 // 5
+    [[6, 15], [9, 45], [6, 0], [6, 45], [0, 15], [0, 45]],                  // 6
+    [[3, 15], [6, 45], [7.5, 37.5], [6, 0], [7.5, 37.5], [0, 0]],           // 7
+    [[6, 15], [6, 45], [0, 15], [0, 45], [0, 15], [0, 45]],                 // 8
+    [[6, 15], [6, 45], [3, 0], [6, 0], [3, 15], [0, 45]],                   // 9
+  ];
+  const NEUTRAL = [7.5, 7.5];
+  const isBlank = ([h, m]) => h === 7.5 && m === 37.5; // clock not used by the digit
+
+  const hourToDeg = h => h * (360 / 12) - 90;
+  const minuteToDeg = m => m * (360 / 60) - 90;
+  const mod = (a, n) => ((a % n) + n) % n;
+
+  // ---- animation options ----
+  // A 'random' entry picks one of the other entries again at every time change (see pickActive).
+  const randomChoice = () => ({ name: 'Random', random: true });
+  // Each path turns (current angle, target angle) into the next angle to rotate to.
+  // dir is +1 for the hour hand, -1 for the minute hand.
+  const PATHS = {
+    original: { name: 'Original',
+      next: (cur, target) => target },
+    shortest: { name: 'Shortest',
+      next: (cur, target) => cur + mod(target - cur + 180, 360) - 180 },
+    clockwise: { name: 'Clockwise',
+      next: (cur, target) => cur + mod(target - cur, 360) },
+    opposite: { name: 'Opposite',
+      next: (cur, target, dir) => cur + dir * mod(dir * (target - cur), 360) },
+    spin: { name: 'Spin',
+      next: (cur, target, dir) => cur + dir * (mod(dir * (target - cur), 360) + 360) },
+    random: randomChoice(),
+  };
+  const EASINGS = {
+    easeOut:   { name: 'Ease out', css: 'cubic-bezier(0.3333, 0.6667, 0.6667, 1)' },
+    easeInOut: { name: 'Smooth', css: 'cubic-bezier(0.65, 0, 0.35, 1)' },
+    overshoot: { name: 'Overshoot', css: 'cubic-bezier(0.34, 1.4, 0.64, 1)' },
+    linear:    { name: 'Linear', css: 'linear' },
+    random:    randomChoice(),
+  };
+  // Delay in seconds for the clock at column x (0-7), row y (0-2).
+  const WAVES = {
+    off:      { name: 'Off', delay: () => 0 },
+    leftRight:{ name: 'Left → right', delay: (x) => x * 0.15 },
+    diagonal: { name: 'Diagonal', delay: (x, y) => (x + y) * 0.15 },
+    digits:   { name: 'Per digit', delay: (x) => Math.floor(x / 2) * 0.4 },
+    random:   randomChoice(),
+  };
+  const MAGNETS = {
+    off: { name: 'Off' },
+    on:  { name: 'On' },
+  };
+  // How often a crazy show plays before the new time lands (every n minutes, 0 = never).
+  const CRAZY = {
+    off:    { name: 'Off', every: 0 },
+    minute: { name: 'Every minute', every: 1 },
+    five:   { name: 'Every 5 min', every: 5 },
+    hour:   { name: 'Every hour', every: 60 },
+  };
+  // How a clock face itself moves when its hands start turning to a new pose.
+  // play(clock, delay) starts the move after delay seconds.
+  const keyframeMove = (ms, keyframes) => (clock, delay) =>
+    clock.face.animate(keyframes, { duration: ms, delay: delay * 1000, easing: 'ease-in-out' });
+  const FACES = {
+    off:    { name: 'Off' },
+    pulse:  { name: 'Pulse', play: keyframeMove(1200, [
+      { transform: 'scale(1)' }, { transform: 'scale(0.82)', offset: 0.35 },
+      { transform: 'scale(1.06)', offset: 0.7 }, { transform: 'scale(1)' }]) },
+    flip:   { name: 'Flip', play: keyframeMove(1400, [
+      { transform: 'perspective(600px) rotateY(0deg)' }, { transform: 'perspective(600px) rotateY(360deg)' }]) },
+    wobble: { name: 'Wobble', play: keyframeMove(1200, [
+      { transform: 'rotate(0deg)' }, { transform: 'rotate(-14deg)', offset: 0.2 }, { transform: 'rotate(10deg)', offset: 0.4 },
+      { transform: 'rotate(-6deg)', offset: 0.6 }, { transform: 'rotate(3deg)', offset: 0.8 }, { transform: 'rotate(0deg)' }]) },
+    real:   { name: 'Clock', play: realClock, everyClock: true }, // not just clocks whose pose changes
+    mix:    { name: 'Mix', play: (clock, delay) => {
+      const moves = Object.values(FACES).filter(f => f.play && f !== FACES.mix);
+      moves[Math.floor(Math.random() * moves.length)].play(clock, delay);
+    } },
+    random: randomChoice(),
+  };
+  const CHOICES = { path: PATHS, easing: EASINGS, wave: WAVES, magnet: MAGNETS, faces: FACES, crazy: CRAZY };
+  // SHOWS (defined with the crazy shows below) joins CHOICES as 'show'.
+
+  const settings = { path: 'original', easing: 'easeOut', wave: 'off', magnet: 'off', faces: 'off',
+    crazy: 'off', show: 'random', duration: 8 };
+  const randomFrom = ids => ids[Math.floor(Math.random() * ids.length)];
+  // What 'random' settings resolved to for the current time change.
+  const active = {};
+  function pickActive() {
+    for (const key of ['path', 'easing', 'wave', 'faces']) {
+      const table = CHOICES[key];
+      active[key] = settings[key] !== 'random' ? settings[key]
+        : randomFrom(Object.keys(table).filter(id => !table[id].random && id !== 'off'));
+    }
+  }
+  // Called once CHOICES is complete (after SHOWS).
+  function loadSettings() {
+    try {
+      const stored = JSON.parse(localStorage.getItem('clockclock-settings')) || {};
+      for (const key of Object.keys(CHOICES)) if (stored[key] in CHOICES[key]) settings[key] = stored[key];
+      if (stored.duration >= 2 && stored.duration <= 16) settings.duration = stored.duration;
+    } catch (e) {}
+    pickActive();
+  }
+  const save = () => { try { localStorage.setItem('clockclock-settings', JSON.stringify(settings)); } catch (e) {} };
+
+  // ---- clock faces ----
+  const root = document.getElementById('clock');
+  const digits = []; // digits[d][c] = { face, hour, minute, x, y }
+  const grid = [[], [], []]; // grid[y][x], same clocks
+
+  for (let d = 0; d < 4; d++) {
+    const digitEl = document.createElement('div');
+    digitEl.className = 'digit';
+    const clocks = [];
+    for (let c = 0; c < 6; c++) {
+      const face = document.createElement('div');
+      face.className = 'face';
+      const minute = document.createElement('div');
+      minute.className = 'hand minute';
+      const hour = document.createElement('div');
+      hour.className = 'hand hour';
+      face.append(minute, hour);
+      digitEl.append(face);
+      const clock = { face, hour, minute, x: d * 2 + (c % 2), y: Math.floor(c / 2), hourDeg: 0, minuteDeg: 0, pose: NEUTRAL,
+        ox: 0, oy: 0, vx: 0, vy: 0, realGen: 0 };
+      clocks.push(clock);
+      grid[clock.y][clock.x] = clock;
+    }
+    root.append(digitEl);
+    digits.push(clocks);
+  }
+
+  // Turn both hands of a clock to the given angles (degrees, 0 = right).
+  function turnTo(clock, hourTarget, minuteTarget, { path, duration, ease, delay }) {
+    const next = PATHS[path].next;
+    clock.hourDeg = next(clock.hourDeg, hourTarget, 1);
+    clock.minuteDeg = next(clock.minuteDeg, minuteTarget, -1);
+    const transition = `transform ${duration}s ${ease} ${delay}s, opacity 2s ease ${delay}s, ` +
+      'width 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)';
+    clock.hour.style.transition = clock.minute.style.transition = transition;
+    clock.hour.style.transform = `rotate(${clock.hourDeg}deg)`;
+    clock.minute.style.transform = `rotate(${clock.minuteDeg}deg)`;
+  }
+
+  // Real: the face becomes a real clock for a moment. Hour lines fade in and the hands turn to
+  // the actual time, hold, then the lines fade out and the hands go on to the clock's pose.
+  // Fits in the same duration as a plain move, so landing and magnet timing don't change.
+  function realClock(clock, delay) {
+    const gen = ++clock.realGen; // goCrazy() bumps it too, cancelling the second half
+    const now = new Date();
+    const m = now.getMinutes() + now.getSeconds() / 60;
+    const opts = { path: active.path, ease: EASINGS[active.easing].css };
+    const d = settings.duration;
+    turnTo(clock, hourToDeg(now.getHours() % 12 + m / 60), minuteToDeg(m), { ...opts, duration: d * 0.35, delay });
+    clock.face.classList.remove('blank');
+    setTimeout(() => { if (gen === clock.realGen) clock.face.classList.add('dial'); }, delay * 1000);
+    setTimeout(() => {
+      if (gen !== clock.realGen) return; // a newer move or a show took over
+      clock.face.classList.remove('dial');
+      clock.face.classList.toggle('blank', isBlank(clock.pose));
+      turnTo(clock, hourToDeg(clock.pose[0]), minuteToDeg(clock.pose[1]), { ...opts, duration: d * 0.4, delay: 0 });
+    }, (delay + d * 0.6) * 1000);
+  }
+
+  // Play the selected face move on a clock, starting after delay seconds.
+  function moveFace(clock, delay) {
+    FACES[active.faces].play?.(clock, delay);
+  }
+
+  // ---- billiard ----
+  // The Billiard crazy show: a whole-screen scene in phases. All clocks shrink into balls; 21 roll into a
+  // triangle rack. In the outer column on the other side, the middle clock is the cue ball and
+  // the two above and below it line up behind it as the cue stick: their hands point at the
+  // ball and stretch into the stick, pull back and strike. The balls bounce around the window
+  // (elastic collisions, wall bounces, friction), then glide home and grow back.
+  // Positions are offsets (ox/oy) from each clock's grid cell, in clock sizes.
+  const BALL = 0.45;           // ball size while playing, as a fraction of a clock
+  const R = BALL / 2;          // ball radius in clock sizes
+  const FRICTION = 0.5, RESTITUTION = 0.95, CUE_SPEED = 30;
+  const STICK_REACH = BALL * 1.1; // how far a stretched hand reaches (matches .hand.stick)
+  const PHASES = [['shrink', 0.6], ['rack', 1.2], ['aim', 1], ['pull', 0.7], ['strike', 0.12],
+    ['roll', 5], ['home', 1.3], ['grow', 0.6]];
+  const BILLIARD_SECONDS = PHASES.reduce((sum, [, s]) => sum + s, 0);
+  const smooth = k => k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+  const lerp = (a, b, k) => a + (b - a) * k;
+
+  let billiard = null; // { phase, t, side, dir, cue, sticks, scale, startScale, last }
+
+  function breakShot() {
+    const clocks = digits.flat();
+    const side = Math.random() < 0.5 ? 0 : 7; // column the cue ball comes from
+    const dir = side === 0 ? 1 : -1;          // direction of the shot
+    const startScale = billiard ? billiard.scale : 1;
+    const running = billiard !== null;
+    const cue = grid[1][side];
+    const sticks = [grid[0][side], grid[2][side]]; // front and back of the stick
+    billiard = { phase: 0, t: 0, side, dir, cue, sticks, scale: startScale, startScale, last: performance.now() };
+    clocks.forEach(c => {
+      c.vx = c.vy = 0; c.sx = c.ox; c.sy = c.oy; c.tx = 0; c.ty = 0; c.isStick = false;
+      c.hour.classList.remove('stick');
+      c.minute.classList.remove('stick');
+    });
+
+    rack(clocks.filter(c => c.x !== side), side);
+
+    // cue ball between the column and the rack, the stick clocks in line behind it
+    const cueX = side === 0 ? 2.6 : 5.4;
+    const frontX = cueX - dir * (R + 0.02 + STICK_REACH);
+    const place = (c, x) => { c.tx = x - (c.x + 0.5); c.ty = 1.5 - (c.y + 0.5); };
+    place(cue, cueX);
+    place(sticks[0], frontX);
+    place(sticks[1], frontX - dir * STICK_REACH);
+
+    if (!running) requestAnimationFrame(roll);
+  }
+
+  // Give 21 balls a target slot in a 6-row triangle, apex pointing at the cue ball, centred
+  // vertically. Balls keep their left-to-right order so they don't cross much on the way.
+  // Returns the balls in slot order (row by row from the apex).
+  function rack(balls, side) {
+    const dir = side === 0 ? 1 : -1;           // rows grow away from the cue
+    const d = BALL + 0.002;                     // touching, with a hair of room
+    const apexX = side === 0 ? 4.6 : 3.4;
+    const slots = [];
+    for (let row = 0; row < 6; row++) {
+      for (let j = 0; j <= row; j++) {
+        slots.push([apexX + dir * row * d * Math.sqrt(3) / 2, 1.5 + (j - row / 2) * d]);
+      }
+    }
+    const byX = (a, b) => dir * (a[0] - b[0]) || a[1] - b[1];
+    slots.sort(byX);
+    const ordered = balls.map(c => [c.x + 0.5, c.y + 0.5, c]).sort(byX).map(([, , c]) => c);
+    ordered.forEach((c, i) => {
+      c.tx = slots[i][0] - (c.x + 0.5);
+      c.ty = slots[i][1] - (c.y + 0.5);
+    });
+    return ordered;
+  }
+
+  // Ball centres are kept inside the window.
+  function table() {
+    const s = digits[0][0].face.offsetWidth;
+    const w = innerWidth / s, h = innerHeight / s;
+    return { left: -(w - 8) / 2, right: 8 + (w - 8) / 2, top: -(h - 3) / 2, bottom: 3 + (h - 3) / 2 };
+  }
+
+  function physics(clocks, frame) {
+    const t = table();
+    const steps = Math.max(1, Math.ceil(frame * 480));
+    const dt = frame / steps;
+    const drag = Math.exp(-FRICTION * dt);
+    for (let s = 0; s < steps; s++) {
+      for (const c of clocks) {
+        c.vx *= drag;
+        c.vy *= drag;
+        c.ox += c.vx * dt;
+        c.oy += c.vy * dt;
+        const px = c.x + 0.5 + c.ox, py = c.y + 0.5 + c.oy;
+        if (px - R < t.left)   { c.ox += t.left - (px - R);   c.vx = Math.abs(c.vx) * RESTITUTION; }
+        if (px + R > t.right)  { c.ox -= px + R - t.right;    c.vx = -Math.abs(c.vx) * RESTITUTION; }
+        if (py - R < t.top)    { c.oy += t.top - (py - R);    c.vy = Math.abs(c.vy) * RESTITUTION; }
+        if (py + R > t.bottom) { c.oy -= py + R - t.bottom;   c.vy = -Math.abs(c.vy) * RESTITUTION; }
+      }
+      for (let i = 0; i < clocks.length; i++) {
+        for (let j = i + 1; j < clocks.length; j++) {
+          const a = clocks[i], b = clocks[j];
+          const nx = b.x + b.ox - a.x - a.ox, ny = b.y + b.oy - a.y - a.oy;
+          const d = Math.hypot(nx, ny);
+          if (d >= BALL || d === 0) continue;
+          const ux = nx / d, uy = ny / d, push = (BALL - d) / 2;
+          a.ox -= ux * push; a.oy -= uy * push;
+          b.ox += ux * push; b.oy += uy * push;
+          const closing = (a.vx - b.vx) * ux + (a.vy - b.vy) * uy;
+          if (closing > 0) {
+            const impulse = closing * (1 + RESTITUTION) / 2;
+            a.vx -= impulse * ux; a.vy -= impulse * uy;
+            b.vx += impulse * ux; b.vy += impulse * uy;
+          }
+        }
+      }
+    }
+  }
+
+  // Stop a clock's hands where they are on screen right now. Without this, a hand whose new target
+  // equals the one it is already turning to keeps its old (maybe 8s) transition running.
+  function freezeHands(clock) {
+    for (const [hand, key] of [[clock.hour, 'hourDeg'], [clock.minute, 'minuteDeg']]) {
+      const m = new DOMMatrix(getComputedStyle(hand).transform);
+      clock[key] = Math.atan2(m.b, m.a) * 180 / Math.PI;
+      hand.style.transition = 'none';
+      hand.style.transform = `rotate(${clock[key]}deg)`;
+    }
+    clock.face.offsetWidth; // apply before the next transition starts
+  }
+
+  // Turn the stick clocks' hands into the stick, or back to their pose. Each clock points its hour
+  // hand at the cue ball and its minute hand straight back, so together they make one straight line.
+  function setStick(b, on) {
+    for (const c of b.sticks) {
+      c.isStick = on;
+      if (on) {
+        const deg = b.dir === 1 ? 0 : 180;
+        freezeHands(c);
+        c.face.classList.remove('blank');
+        turnTo(c, deg, deg + 180, { path: 'shortest', duration: 0.8, ease: SHOW_EASE, delay: 0 });
+      } else {
+        turnTo(c, hourToDeg(c.pose[0]), minuteToDeg(c.pose[1]), { path: 'shortest', duration: 0.6, ease: SHOW_EASE, delay: 0 });
+        c.face.classList.toggle('blank', isBlank(c.pose));
+      }
+      c.hour.classList.toggle('stick', on);
+      c.minute.classList.toggle('stick', on);
+    }
+  }
+
+  function roll(now) {
+    const b = billiard;
+    const clocks = digits.flat();
+    const frame = Math.min(0.05, (now - b.last) / 1000);
+    b.last = now;
+    b.t += frame;
+    const [phase, length] = PHASES[b.phase];
+    const k = Math.min(1, b.t / length);
+
+    if (phase === 'shrink') {
+      b.scale = lerp(b.startScale, BALL, smooth(k));
+    } else if (phase === 'rack') {
+      for (const c of clocks) {
+        c.ox = lerp(c.sx, c.tx, smooth(k));
+        c.oy = lerp(c.sy, c.ty, smooth(k));
+      }
+    } else if (phase === 'pull') {
+      for (const c of b.sticks) c.ox = lerp(c.sx, c.sx - b.dir * 0.5, smooth(k));
+    } else if (phase === 'strike') {
+      for (const c of b.sticks) c.ox = lerp(c.sx, c.sx + b.dir * 0.54, k * k);
+    } else if (phase === 'roll') {
+      physics(clocks, frame);
+    } else if (phase === 'home') {
+      for (const c of clocks) {
+        c.ox = lerp(c.sx, 0, smooth(k));
+        c.oy = lerp(c.sy, 0, smooth(k));
+      }
+    } else if (phase === 'grow') {
+      b.scale = lerp(BALL, 1, smooth(k));
+    }
+
+    for (const c of clocks) {
+      c.face.style.translate = `calc(var(--s) * ${c.ox}) calc(var(--s) * ${c.oy})`;
+      c.face.style.scale = b.scale;
+    }
+
+    const slow = phase === 'roll' && b.t > 1 && clocks.every(c => Math.hypot(c.vx, c.vy) < 0.15);
+    if (k < 1 && !slow) {
+      requestAnimationFrame(roll);
+      return;
+    }
+    // next phase
+    b.phase++;
+    b.t = 0;
+    if (b.phase === PHASES.length) {
+      clocks.forEach(c => { c.ox = c.oy = c.vx = c.vy = 0; c.face.style.translate = ''; c.face.style.scale = ''; });
+      billiard = null;
+      return;
+    }
+    const next = PHASES[b.phase][0];
+    if (next === 'aim') setStick(b, true);
+    if (next === 'roll') {
+      // the stick has hit: shoot the cue ball at the apex of the rack, a little off-centre
+      setStick(b, false);
+      const c = b.cue;
+      const apexX = b.side === 0 ? 4.6 : 3.4;
+      const a = Math.atan2(1.5 - (c.y + 0.5 + c.oy), apexX - (c.x + 0.5 + c.ox)) + (Math.random() - 0.5) * 0.1;
+      c.vx = Math.cos(a) * CUE_SPEED;
+      c.vy = Math.sin(a) * CUE_SPEED;
+    }
+    clocks.forEach(c => { c.sx = c.ox; c.sy = c.oy; }); // each phase starts from where the balls are
+    requestAnimationFrame(roll);
+  }
+
+  function setPose(clock, [h, m]) {
+    const changed = clock.pose[0] !== h || clock.pose[1] !== m;
+    clock.pose = [h, m];
+    const delay = WAVES[active.wave].delay(clock.x, clock.y);
+    turnTo(clock, hourToDeg(h), minuteToDeg(m), {
+      path: active.path,
+      duration: settings.duration,
+      ease: EASINGS[active.easing].css,
+      delay,
+    });
+    clock.face.classList.toggle('blank', isBlank([h, m]));
+    if (changed || FACES[active.faces].everyClock) moveFace(clock, delay);
+    return changed;
+  }
+
+  function showTime(hhmm) {
+    pickActive();
+    for (let d = 0; d < 4; d++) {
+      const pose = DIGITS[+hhmm[d]];
+      digits[d].forEach((clock, c) => setPose(clock, pose[c]));
+    }
+    linkHands();
+  }
+
+  // ---- magnet ----
+  // Screen direction of a hand at a resting angle: 0 right, 90 down, 180 left, 270 up.
+  const DIRS = { 0: [1, 0], 90: [0, 1], 180: [-1, 0], 270: [0, -1] };
+  const poseAngles = ([h, m]) => [mod(hourToDeg(h), 360), mod(minuteToDeg(m), 360)];
+
+  // Hands of this clock that point at a neighbouring clock reach all the way to the
+  // neighbour's centre ('reach'), e.g. the lower right stroke of a 3. If the neighbour has a
+  // hand pointing straight back, only the right/down one of the pair reaches and the other
+  // shrinks to its pivot ('tucked'), so the stroke is one bar with no joint in the middle.
+  function handLinks(clock) {
+    if (isBlank(clock.pose)) return [];
+    const links = [];
+    poseAngles(clock.pose).forEach((deg, i) => {
+      const dir = DIRS[deg];
+      if (!dir) return;
+      const other = grid[clock.y + dir[1]]?.[clock.x + dir[0]];
+      if (!other || isBlank(other.pose)) return;
+      const pointsBack = poseAngles(other.pose).includes(mod(deg + 180, 360));
+      const cls = pointsBack && (deg === 180 || deg === 270) ? 'tucked' : 'reach';
+      links.push({ hand: i === 0 ? clock.hour : clock.minute, other, cls });
+    });
+    return links;
+  }
+
+  // Retract every hand as the clocks start moving, then snap linked pairs together
+  // once both of their clocks have landed.
+  let magnetGen = 0;
+  function retractHands() {
+    ++magnetGen; // cancels pending snaps
+    for (const clock of digits.flat()) {
+      clock.hour.classList.remove('tucked', 'reach');
+      clock.minute.classList.remove('tucked', 'reach');
+    }
+  }
+
+  function linkHands() {
+    retractHands();
+    const gen = magnetGen;
+    if (settings.magnet !== 'on') return;
+    const wave = WAVES[active.wave].delay;
+    for (const clock of digits.flat()) {
+      for (const { hand, other, cls } of handLinks(clock)) {
+        const landed = settings.duration + Math.max(wave(clock.x, clock.y), wave(other.x, other.y));
+        setTimeout(() => { if (gen === magnetGen) hand.classList.add(cls); }, landed * 1000);
+      }
+    }
+  }
+
+  // Longest delay any clock gets with the wave setting (with Random: the longest of any wave,
+  // since tick() needs it before the next time change picks one).
+  const maxDelay = () => Math.max(...Object.entries(WAVES)
+    .filter(([id, w]) => w.delay && (settings.wave === 'random' || id === settings.wave))
+    .map(([, w]) => w.delay(7, 2)));
+
+  // ---- crazy shows ----
+  // A show is a list of steps. Each step turns every clock to angles(clock) along a path,
+  // with a per-clock start delay. Positions are relative to the middle of the 8×3 grid.
+  const rel = c => [c.x - 3.5, c.y - 1];
+  const outward = c => Math.atan2(rel(c)[1], rel(c)[0]) * 180 / Math.PI;
+  const dist = c => Math.hypot(...rel(c));
+  const randomDeg = () => Math.floor(Math.random() * 8) * 45;
+  const SHOW_EASE = 'cubic-bezier(0.65, 0, 0.35, 1)';
+  const SHOW_SECONDS = 13; // every show below fits in this
+
+  const SHOWS = {
+    random: randomChoice(),
+    rain: { name: 'Rain', steps: [
+      { angles: () => [45, 225], dur: 3, delay: c => c.x * 0.1, path: 'shortest' },
+      { angles: () => [45, 225], dur: 5, delay: c => c.x * 0.2, path: 'spin' },
+    ] },
+    flower: { name: 'Flower', steps: [
+      { angles: c => [outward(c), outward(c) + 180], dur: 3, delay: c => dist(c) * 0.3, path: 'shortest' },
+      { angles: c => [outward(c) + 90, outward(c) - 90], dur: 4, delay: c => dist(c) * 0.3, path: 'clockwise' },
+      { angles: c => [outward(c), outward(c)], dur: 3, delay: () => 0, path: 'shortest' },
+    ] },
+    ripple: { name: 'Ripple', steps: [
+      { angles: () => [90, 270], dur: 3, delay: () => 0, path: 'shortest' },
+      { angles: () => [90, 270], dur: 6, delay: c => dist(c) * 0.4, path: 'spin' },
+    ] },
+    scissors: { name: 'Scissors', steps: [
+      { angles: () => [0, 180], dur: 2.5, delay: c => c.y * 0.2, path: 'shortest' },
+      { angles: () => [90, 270], dur: 2.5, delay: c => c.y * 0.2, path: 'opposite' },
+      { angles: () => [180, 0], dur: 2.5, delay: c => c.y * 0.2, path: 'opposite' },
+      { angles: () => [270, 90], dur: 2.5, delay: c => c.y * 0.2, path: 'opposite' },
+    ] },
+    chaos: { name: 'Chaos', steps: [
+      { angles: () => [randomDeg(), randomDeg()], dur: 2.5, delay: () => Math.random() * 0.8, path: 'clockwise' },
+      { angles: () => [randomDeg(), randomDeg()], dur: 2.5, delay: () => Math.random() * 0.8, path: 'opposite' },
+      { angles: () => [randomDeg(), randomDeg()], dur: 2.5, delay: () => Math.random() * 0.8, path: 'clockwise' },
+    ] },
+    // A whole-screen scene instead of steps: see breakShot().
+    billiard: { name: 'Billiard' },
+  };
+  CHOICES.show = SHOWS;
+  loadSettings();
+
+  // Play the selected show (or a random one). The clock stays on hold until it's done;
+  // tick() then lands on the time.
+  let showGen = 0;
+  function goCrazy() {
+    const gen = ++showGen;
+    const clocks = digits.flat();
+    clocks.forEach(c => { // stop Real face moves
+      c.realGen++;
+      c.face.classList.remove('dial');
+      c.face.classList.toggle('blank', isBlank(c.pose));
+    });
+    const id = settings.show !== 'random' ? settings.show
+      : randomFrom(Object.keys(SHOWS).filter(id => !SHOWS[id].random));
+    retractHands();
+    if (id === 'billiard') {
+      breakShot(); // the hands keep showing the time while the balls roll
+      holdUntil = new Date(Date.now() + BILLIARD_SECONDS * 1000);
+      return;
+    }
+    clocks.forEach(c => c.face.classList.remove('blank'));
+    let at = 0;
+    for (const step of SHOWS[id].steps) {
+      const delays = clocks.map(step.delay);
+      setTimeout(() => {
+        if (gen !== showGen) return;
+        clocks.forEach((c, i) => {
+          if (c.isStick) return; // busy being the billiard cue stick
+          const [h, m] = step.angles(c);
+          turnTo(c, h, m, { path: step.path, duration: step.dur, ease: SHOW_EASE, delay: delays[i] });
+        });
+      }, at * 1000);
+      at += step.dur + Math.max(...delays);
+    }
+    holdUntil = new Date(Date.now() + at * 1000);
+  }
+
+  // Like Clock24.SetTime: show the current minute at startup, then switch to the
+  // next minute early enough that the animation lands just before it turns over.
+  // A crazy show for the coming minute starts that much earlier again.
+  let shown = null;
+  let holdUntil = 0; // a preview or show is playing
+  function tick() {
+    const now = new Date();
+    if (now < holdUntil) return;
+    const every = CRAZY[settings.crazy].every;
+    const t = new Date(now);
+    t.setSeconds(0, 0);
+    const nextMinute = (t.getMinutes() + 1) % 60;
+    const crazyNext = every > 0 && nextMinute % every === 0;
+    const lead = Math.min(50, Math.ceil(settings.duration + maxDelay() + 2 + (crazyNext ? SHOW_SECONDS : 0)));
+    let crazy = false;
+    if (shown !== null && now.getSeconds() >= 60 - lead) {
+      t.setMinutes(t.getMinutes() + 1);
+      crazy = crazyNext;
+    }
+    const hhmm = String(t.getHours()).padStart(2, '0') + String(t.getMinutes()).padStart(2, '0');
+    if (hhmm !== shown || holdUntil) {
+      const isNew = hhmm !== shown; // not just landing after a preview or show
+      holdUntil = 0;
+      shown = hhmm;
+      if (crazy && isNew) goCrazy(); else showTime(hhmm);
+    }
+  }
+
+  // Preview: animate to a random time, then back to the real one.
+  function preview() {
+    ++showGen;
+    let hhmm;
+    do {
+      hhmm = Array.from({ length: 4 }, () => Math.floor(Math.random() * 10)).join('');
+    } while (hhmm === shown);
+    showTime(hhmm);
+    holdUntil = new Date(Date.now() + (settings.duration + maxDelay() + 1) * 1000);
+  }
+
+  // ---- options UI ----
+  document.querySelectorAll('.group').forEach(group => {
+    const key = group.dataset.key;
+    for (const [id, choice] of Object.entries(CHOICES[key])) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'opt';
+      btn.textContent = choice.name;
+      btn.setAttribute('aria-pressed', settings[key] === id);
+      btn.addEventListener('click', () => {
+        settings[key] = id;
+        save();
+        group.querySelectorAll('.opt').forEach(b => b.setAttribute('aria-pressed', b === btn));
+        if ((key === 'crazy' && id !== 'off') || key === 'show') goCrazy();
+        else preview();
+      });
+      group.append(btn);
+    }
+  });
+
+  const duration = document.getElementById('duration');
+  const durationValue = document.getElementById('durationValue');
+  duration.value = settings.duration;
+  durationValue.textContent = settings.duration + 's';
+  duration.addEventListener('input', () => {
+    settings.duration = +duration.value;
+    durationValue.textContent = settings.duration + 's';
+    save();
+  });
+  duration.addEventListener('change', preview);
+  document.getElementById('preview').addEventListener('click', preview);
+  document.getElementById('goCrazy').addEventListener('click', goCrazy);
+
+  // Clicking the first clock opens the options; a click outside (or Esc) closes them.
+  const dialog = document.getElementById('settings');
+  const trigger = digits[0][0].face;
+  trigger.classList.add('settings-trigger');
+  trigger.addEventListener('click', () => dialog.showModal());
+  // Clicking the last clock plays a crazy show.
+  const crazyTrigger = digits[3][5].face;
+  crazyTrigger.classList.add('settings-trigger');
+  crazyTrigger.addEventListener('click', goCrazy);
+  // Only close when the press also started outside, so dragging the slider out doesn't close it.
+  let pressedOutside = false;
+  const outside = e => {
+    const r = dialog.getBoundingClientRect();
+    return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+  };
+  dialog.addEventListener('pointerdown', e => { pressedOutside = outside(e); });
+  dialog.addEventListener('click', e => { if (pressedOutside && outside(e)) dialog.close(); });
+
+  // ---- start ----
+  // Every clock starts in the neutral pose, then animates to the time.
+  digits.flat().forEach(clock => setPose(clock, NEUTRAL));
+  root.getBoundingClientRect();
+  root.classList.remove('no-anim');
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    tick();
+    setInterval(tick, 1000);
+  }));
+
+  // ---- kiosk ----
+  // Hide the mouse cursor after 3s without movement.
+  let idleTimer = 0;
+  const wake = () => {
+    document.body.classList.remove('idle');
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => document.body.classList.add('idle'), 3000);
+  };
+  addEventListener('pointermove', wake);
+  wake();
+
+  // When served over http(s) (GitHub Pages), check every 5 minutes whether this page changed
+  // and reload, so a kiosk picks up new versions by itself. Settings survive in localStorage.
+  if (location.protocol.startsWith('http')) {
+    let version = null;
+    const checkUpdate = async () => {
+      try {
+        const res = await fetch(location.pathname, { cache: 'no-store' });
+        if (!res.ok) return;
+        const text = await res.text();
+        if (version === null) version = text;
+        else if (text !== version) location.reload();
+      } catch (e) {} // offline: keep running, try again later
+    };
+    checkUpdate();
+    setInterval(checkUpdate, 5 * 60 * 1000);
+  }
+</script>
+</body>
+</html>

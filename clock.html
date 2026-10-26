@@ -15,6 +15,8 @@
     --line: #333333;
     /* clock size: 8 clocks across, 3 down, fit the window */
     --s: min(calc((100vw - 48px) / 8), calc((100vh - 48px) / 3));
+    /* space between neighbouring faces; even, so face centres stay on whole pixels */
+    --gap: 4px;
   }
   /* whole, even pixels for clock size and hand thickness, so every clock's centre and every
      hand edge lands on the same pixel grid and joined hands line up with no visible seam */
@@ -51,8 +53,10 @@
   .face {
     position: relative;
     box-sizing: border-box;
-    width: var(--s);
-    height: var(--s);
+    /* the grid cell stays --s (all positions are in cell units); the face is --gap smaller */
+    width: calc(var(--s) - var(--gap));
+    height: calc(var(--s) - var(--gap));
+    margin: calc(var(--gap) / 2);
     border-radius: 50%;
     background: var(--face);
     border: 0.5px solid var(--rim);
@@ -416,7 +420,8 @@
 
   // Ball centres are kept inside the window.
   function table() {
-    const s = digits[0][0].face.offsetWidth;
+    const face = digits[0][0].face;
+    const s = face.offsetWidth + 2 * parseFloat(getComputedStyle(face).marginLeft); // grid cell
     const w = innerWidth / s, h = innerHeight / s;
     return { left: -(w - 8) / 2, right: 8 + (w - 8) / 2, top: -(h - 3) / 2, bottom: 3 + (h - 3) / 2 };
   }

@@ -111,10 +111,20 @@ notches at the joins).
 
 Hosted on GitHub Pages: https://geeforceone.github.io/gClockClock/clock.html (public repo
 `geeForceOne/gClockClock`, Pages from `main`, root). A Raspberry Pi shows it full screen in
-Chromium kiosk mode; `kiosk-setup.sh` configures that (labwc only): `~/gclock-kiosk.sh` waits
-for the network, then runs `chromium --ozone-platform=wayland --kiosk` (without the Wayland flag
-Chromium tries X11 and fails when not started from the session); `~/.config/labwc/autostart`
-starts it via `lwrespawn` (restarts on exit). Desktop auto-login must be on, screen blanking off.
+Chromium kiosk mode. `kiosk-setup.sh` does the whole setup on a fresh Raspberry Pi OS (labwc):
+```
+curl -sLO https://raw.githubusercontent.com/geeForceOne/gClockClock/main/kiosk-setup.sh
+bash kiosk-setup.sh --upside-down   # options: --url URL, --upside-down, --no-sudo
+sudo reboot
+```
+Run as the normal user; it asks for the sudo password once and is safe to re-run (idempotent;
+`--no-sudo` does only the home-folder part and prints the rest, handy for testing over SSH).
+Home folder: `~/gclock-kiosk.sh` waits for the network, then runs
+`chromium --ozone-platform=wayland --kiosk` (without the Wayland flag Chromium tries X11 and fails
+when not started from the session); `~/.config/labwc/autostart` starts it via `lwrespawn`
+(restarts on exit); plus the performance and slimming items below. System (sudo): auto-login, no
+blanking, Bluetooth off, packagekit masked, and with `--upside-down` the rotation below
+(backups as `*.gclock-bak`).
 
 Updating = pushing to `main`: when served over http(s) the page fetches itself every 5 minutes
 and reloads when the text changed (GitHub Pages caches up to 10 minutes, so allow ~15). If a

@@ -15,15 +15,15 @@
     --line: #333333;
     /* clock size: 8 clocks across, 3 down, fit the window */
     --s: min(calc((100vw - 48px) / 8), calc((100vh - 48px) / 3));
-    /* space between neighbouring faces; even, so face centres stay on whole pixels */
+    /* space between neighboring faces; even, so face centers stay on whole pixels */
     --gap: 4px;
   }
-  /* whole, even pixels for clock size and hand thickness, so every clock's centre and every
+  /* whole, even pixels for clock size and hand thickness, so every clock's center and every
      hand edge lands on the same pixel grid and joined hands line up with no visible seam */
   @supports (width: round(down, 1.5px, 2px)) {
     :root { --s: round(down, min(calc((100vw - 48px) / 8), calc((100vh - 48px) / 3)), 2px); }
     .clock24 .face { --t: round(calc(var(--s) * 0.05), 2px); }
-    /* centred like the body's flexbox would, but on a whole pixel so edges stay crisp */
+    /* centered like the body's flexbox would, but on a whole pixel so edges stay crisp */
     .clock24 {
       position: absolute;
       left: round(down, calc((100vw - var(--s) * 8) / 2), 1px);
@@ -72,7 +72,7 @@
     background: var(--hand);
     transform-origin: calc(var(--t) / 2) 50%;
     transition: transform 8s cubic-bezier(0.3333, 0.6667, 0.6667, 1), opacity 2s ease;
-    z-index: 1; /* reaching hands paint over the neighbouring face */
+    z-index: 1; /* reaching hands paint over the neighboring face */
   }
   .face.blank .hand { opacity: 0; }
   /* Real face move: 12 hour lines round the rim */
@@ -90,9 +90,9 @@
   .face.dial::before { opacity: 1; }
   .hand.minute { width: calc(var(--s) * 0.48 + var(--t) / 2); }
   .hand.hour   { width: calc(var(--s) * 0.425 + var(--t) / 2); }
-  /* magnet: reach all the way to the neighbour's centre, so the stroke is one bar */
+  /* magnet: reach all the way to the neighbor's center, so the stroke is one bar */
   .hand.reach  { width: calc(var(--s) + var(--t)); }
-  /* magnet: the neighbour's hand reaches over this one, which shrinks to its pivot dot */
+  /* magnet: the neighbor's hand reaches over this one, which shrinks to its pivot dot */
   .hand.tucked { width: var(--t); }
   /* billiard: hands of the two cue-stick clocks stretch into the stick */
   .hand.stick  { width: calc(var(--s) * 1.1 + var(--t)); }
@@ -395,7 +395,7 @@
     if (!running) requestAnimationFrame(roll);
   }
 
-  // Give 21 balls a target slot in a 6-row triangle, apex pointing at the cue ball, centred
+  // Give 21 balls a target slot in a 6-row triangle, apex pointing at the cue ball, centered
   // vertically. Balls keep their left-to-right order so they don't cross much on the way.
   // Returns the balls in slot order (row by row from the apex).
   function rack(balls, side) {
@@ -418,7 +418,7 @@
     return ordered;
   }
 
-  // Ball centres are kept inside the window.
+  // Ball centers are kept inside the window.
   function table() {
     const face = digits[0][0].face;
     const s = face.offsetWidth + 2 * parseFloat(getComputedStyle(face).marginLeft); // grid cell
@@ -546,7 +546,7 @@
     const next = PHASES[b.phase][0];
     if (next === 'aim') setStick(b, true);
     if (next === 'roll') {
-      // the stick has hit: shoot the cue ball at the apex of the rack, a little off-centre
+      // the stick has hit: shoot the cue ball at the apex of the rack, a little off-center
       setStick(b, false);
       const c = b.cue;
       const apexX = b.side === 0 ? 4.6 : 3.4;
@@ -587,8 +587,8 @@
   const DIRS = { 0: [1, 0], 90: [0, 1], 180: [-1, 0], 270: [0, -1] };
   const poseAngles = ([h, m]) => [mod(hourToDeg(h), 360), mod(minuteToDeg(m), 360)];
 
-  // Hands of this clock that point at a neighbouring clock reach all the way to the
-  // neighbour's centre ('reach'), e.g. the lower right stroke of a 3. If the neighbour has a
+  // Hands of this clock that point at a neighboring clock reach all the way to the
+  // neighbor's center ('reach'), e.g. the lower right stroke of a 3. If the neighbor has a
   // hand pointing straight back, only the right/down one of the pair reaches and the other
   // shrinks to its pivot ('tucked'), so the stroke is one bar with no joint in the middle.
   function handLinks(clock) {

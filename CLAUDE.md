@@ -7,6 +7,28 @@ turn to form the time. Plain HTML/CSS/JS, no build, no dependencies.
 
 - `clock.html` — the whole app (markup, styles, script). Open it in a browser to run.
 - `kiosk-setup.sh` — sets up a Raspberry Pi to show the clock full screen (see Deploy).
+- `README.md`, `LICENSE` (MIT, geeForceOne).
+
+## Workflow
+
+When the user gives feedback or requests changes in a back-and-forth (bug reports, tweaks, "also do
+X"), don't implement each one immediately as it comes in. Acknowledge it, queue it, and keep
+gathering. Only start making changes once the user explicitly says "go" (or an equally unambiguous
+confirmation). Purely informational questions can still be answered right away.
+
+## Git workflow
+
+Never run `git commit` or `git push` unless the user explicitly asks for it in that turn. A commit
+approval does not imply a push approval, and approval from an earlier turn does not carry forward to
+later changes. A push to `main` is a deploy: GitHub Pages serves it and the Pi kiosk reloads it
+within ~15 minutes.
+
+- Every change starts on its own branch off an up-to-date main; after a merge, pull main, delete
+  merged branches (`-d`) and `git fetch --prune`.
+- Test before publish: finish the work on the branch, then stop before merging/pushing to main and
+  let the user open `clock.html` locally. Say what was and wasn't checked. Skip only when told to.
+- Commit as `geeForceOne <1780268+geeForceOne@users.noreply.github.com>`, never with a real name or
+  Gmail (the repo is public). Write commit messages that explain why.
 
 ## Origin
 
@@ -52,13 +74,13 @@ re-picks them at every `showTime()` (Faces Random never picks `off`).
 
 ## Magnet
 
-After both clocks of a pair have landed, hands pointing at an axis-aligned neighbour stretch:
-- `reach`: hand goes to the neighbour's centre, so the stroke is one bar (needed for the lower
+After both clocks of a pair have landed, hands pointing at an axis-aligned neighbor stretch:
+- `reach`: hand goes to the neighbor's center, so the stroke is one bar (needed for the lower
   strokes of 3 and 8 and the middle bars of 6 and 9).
-- `tucked`: neighbour points straight back → only the right/down hand of the pair reaches; the
+- `tucked`: neighbor points straight back → only the right/down hand of the pair reaches; the
   left/up one shrinks to its pivot dot, so there is no joint (overlapping rounded tips showed).
 All hands retract when the time changes. `magnetGen` cancels stale snap timeouts.
-Hands have `z-index: 1` so stretched hands paint over the neighbouring face.
+Hands have `z-index: 1` so stretched hands paint over the neighboring face.
 
 ## Face moves
 
@@ -99,10 +121,10 @@ running show.
 
 ## Look
 
-Black page and faces, white hands, thin (0.5px) grey `#555` rim. Colours are CSS variables
+Black page and faces, white hands, thin (0.5px) gray `#555` rim. Colors are CSS variables
 on `:root`. Clock size `--s` fits 8 clocks across and 3 down in the window. `--s` is the grid
-cell (all positions, hand reach and billiard maths are in cell units); each face is `--gap` (4px,
-keep it even so centres stay on whole pixels) smaller with half of it as margin. Where CSS `round()` is supported,
+cell (all positions, hand reach and billiard math are in cell units); each face is `--gap` (4px,
+keep it even so centers stay on whole pixels) smaller with half of it as margin. Where CSS `round()` is supported,
 `--s` and hand thickness `--t` snap to even whole pixels and `.clock24` is positioned on a whole
 pixel, so joined hands from different clocks line up exactly (fractional sizes left visible
 notches at the joins).
@@ -162,3 +184,10 @@ Notes from the reference setup (Pi 3B, Raspberry Pi OS trixie, labwc, 7" DSI tou
 
 Windows; Node is not installed, so there is no way to run or lint JS from the shell —
 verify changes by opening `clock.html` in a browser.
+
+## Conventions
+
+- **Verify external APIs, don't work from memory.** Check current official docs before relying on
+  browser APIs (Web Animations, CSS `round()`), Chromium flags, labwc, or Raspberry Pi OS tools.
+- **American English** in all English text (comments, docs, labels): color, center, neighbor.
+  Exception: real names that are spelled otherwise, e.g. `raspi-config nonint do_boot_behaviour`.

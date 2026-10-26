@@ -28,4 +28,10 @@ chmod +x ~/gclock-kiosk.sh
 mkdir -p ~/.config/labwc
 grep -qs gclock-kiosk ~/.config/labwc/autostart || echo "/usr/bin/lwrespawn $HOME/gclock-kiosk.sh &" >> ~/.config/labwc/autostart
 
+# Pi 3 and older: Raspberry Pi OS makes labwc draw on the CPU (pixman), which makes the
+# animations stutter. The GPU renderer works there and cuts labwc's CPU use from ~50% to ~7%.
+if ! raspi-config nonint gpu_has_mmu; then
+  grep -qs "^WLR_RENDERER=" ~/.config/labwc/environment || echo "WLR_RENDERER=gles2" >> ~/.config/labwc/environment
+fi
+
 echo "Done. The clock starts at the next login or reboot."

@@ -129,7 +129,13 @@ blanking, Bluetooth off, packagekit masked, and with `--upside-down` the rotatio
 Updating = pushing to `main`: when served over http(s) the page fetches itself every 5 minutes
 and reloads when the text changed (GitHub Pages caches up to 10 minutes, so allow ~15). If a
 broken version stops the page itself, it can't reload; restarting Chromium fixes that after a fix
-is pushed.
+is pushed. In the page, the `kiosk` section at the end of the script does the self-update
+(`checkUpdate()`, only over http(s)) and hides the cursor after 3s idle (`body.idle`). Don't use
+incognito in the kiosk, or the settings (localStorage) are lost on every start.
+
+Pi OS updates: `sudo apt update && sudo apt full-upgrade` (packagekit is masked, so nothing updates
+by itself); kiosk settings survive. For a new major release Raspberry Pi recommends a fresh install,
+then `kiosk-setup.sh` again.
 
 Notes from the reference setup (Pi 3B, Raspberry Pi OS trixie, labwc, 7" DSI touch display):
 - Performance: Raspberry Pi OS forces `WLR_RENDERER=pixman` (CPU compositing) on GPUs without MMU
@@ -137,7 +143,8 @@ Notes from the reference setup (Pi 3B, Raspberry Pi OS trixie, labwc, 7" DSI tou
   `~/.config/labwc/environment` cut that to ~7% (`kiosk-setup.sh` adds it; labwc applies it after
   start, so `/proc/<pid>/environ` still shows pixman). Chromium itself already uses the GPU
   (`--use-angle=gles`, no `--disable-gpu-compositing`). Check `vcgencmd get_throttled` (0x0 =
-  fine): under-voltage throttles the Pi 3 to 600 MHz.
+  fine): under-voltage throttles the Pi 3 to 600 MHz; with the 7" display it needs a good 2.5 A
+  supply.
 - Slimming: hide unused desktop autostarts with `Hidden=true` overrides in `~/.config/autostart`
   (squeekboard, polkit agent, pprompt, pwrkey; keep autotouch), mask unused user services
   (pipewire, wireplumber, filter-chain, mpris-proxy, gvfs phone/camera monitors); Chromium's cache
@@ -148,8 +155,8 @@ Notes from the reference setup (Pi 3B, Raspberry Pi OS trixie, labwc, 7" DSI tou
   `disable_splash=1` in `config.txt`. Keep kanshi at `transform normal` (180 there rotates twice).
   labwc doesn't rotate touch for a driver-level orientation, so flip it with a udev rule:
   `ENV{ID_INPUT_TOUCHSCREEN}=="1", ENV{LIBINPUT_CALIBRATION_MATRIX}="-1 0 1 0 -1 1"`.
-- Firefox is no alternative on a Pi 3: WebRender needs GL ES 3.0, the Pi 3 GPU has 2.0. The cursor hides after 3s idle
-(`body.idle`). Don't use incognito in the kiosk, or settings are lost on every start.
+- Firefox is no alternative on a Pi 3: WebRender needs GL ES 3.0, the Pi 3 GPU has 2.0 (it would
+  composite on the CPU). Chromium works with ES 2.0.
 
 ## Environment
 

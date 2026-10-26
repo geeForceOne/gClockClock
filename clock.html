@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ClockClock 24</title>
+<title>gClockClock</title>
 <style>
   :root {
     --page: #000000;
@@ -13,6 +13,14 @@
     --text: #bbbbbb;
     --muted: #666666;
     --line: #333333;
+    --label: #ffffff;
+    /* saber duel: blade glow of the left and right fighter */
+    --saber-a: #3399ff;
+    --saber-b: #ff3333;
+    /* bougainvillea show (the bract magentas are BRACT_COLORS in the script) */
+    --vine: #6b4f2a;
+    --shoot: #5f7f2c;
+    --leaf: #3f7d2c;
     /* clock size: 8 clocks across, 3 down, fit the window */
     --s: min(calc((100vw - 48px) / 8), calc((100vh - 48px) / 3));
     /* space between neighboring faces; even, so face centers stay on whole pixels */
@@ -96,6 +104,27 @@
   .hand.tucked { width: var(--t); }
   /* billiard: hands of the two cue-stick clocks stretch into the stick */
   .hand.stick  { width: calc(var(--s) * 1.1 + var(--t)); }
+  /* saber duel: a fighter's minute hand ignites into a glowing blade (--glow is set per fighter) */
+  .hand.saber {
+    width: calc(var(--s) * 1.9 + var(--t) / 2);
+    box-shadow: 0 0 calc(var(--t) * 1.5) calc(var(--t) * 0.6) var(--glow), 0 0 calc(var(--t) * 4) var(--glow);
+  }
+  .hand.saber.clash { box-shadow: 0 0 calc(var(--t) * 2) var(--t) #fff, 0 0 calc(var(--t) * 6) var(--glow); }
+  .spark {
+    position: fixed;
+    width: calc(var(--s) * 0.6);
+    height: calc(var(--s) * 0.6);
+    border-radius: 50%;
+    background: radial-gradient(closest-side, #fff 20%, rgba(255, 255, 255, 0.5) 45%, transparent);
+    pointer-events: none;
+    z-index: 5;
+  }
+  /* bougainvillea show: an SVG layer over the clock in grid cells (viewBox 0 0 8 3) */
+  .bloom { position: fixed; overflow: visible; pointer-events: none; z-index: 2; }
+  .bloom .vine { fill: none; stroke: var(--vine); stroke-width: 0.03; stroke-linecap: round; }
+  .bloom .tendril { fill: none; stroke: var(--shoot); stroke-width: 0.016; stroke-linecap: round; }
+  .bloom .leaf { fill: var(--leaf); }
+  .bloom .blossom { fill: #fffbe6; }
   .no-anim .hand { transition: none !important; }
 
   /* options dialog: sits low on the screen so the clock stays visible for previews */
@@ -119,7 +148,7 @@
     gap: 6px 12px;
     align-items: center;
   }
-  .options .label { color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; font-size: 10px; }
+  .options .label { color: var(--label); text-transform: uppercase; letter-spacing: 0.07em; font-size: 10px; }
   .group { display: flex; flex-wrap: wrap; gap: 4px; }
   .opt {
     background: transparent;
@@ -419,9 +448,12 @@
   }
 
   // Ball centers are kept inside the window.
-  function table() {
+  function cellSize() {
     const face = digits[0][0].face;
-    const s = face.offsetWidth + 2 * parseFloat(getComputedStyle(face).marginLeft); // grid cell
+    return face.offsetWidth + 2 * parseFloat(getComputedStyle(face).marginLeft);
+  }
+  function table() {
+    const s = cellSize();
     const w = innerWidth / s, h = innerHeight / s;
     return { left: -(w - 8) / 2, right: 8 + (w - 8) / 2, top: -(h - 3) / 2, bottom: 3 + (h - 3) / 2 };
   }
@@ -579,7 +611,18 @@
       const pose = DIGITS[+hhmm[d]];
       digits[d].forEach((clock, c) => setPose(clock, pose[c]));
     }
+    endScenes();
     linkHands();
+  }
+
+  // Remove what a running or finished scene left behind: the Bougainvillea layer, the saber duel.
+  function endScenes() {
+    clearBloom();
+    for (const clock of digits.flat()) {
+      if (clock.dueling) leaveDuel(clock);
+      clock.hour.classList.remove('saber', 'clash');
+      clock.minute.classList.remove('saber', 'clash');
+    }
   }
 
   // ---- magnet ----
@@ -640,22 +683,331 @@
   // A show is a list of steps. Each step turns every clock to angles(clock) along a path,
   // with a per-clock start delay. Positions are relative to the middle of the 8×3 grid.
   const rel = c => [c.x - 3.5, c.y - 1];
-  const outward = c => Math.atan2(rel(c)[1], rel(c)[0]) * 180 / Math.PI;
   const dist = c => Math.hypot(...rel(c));
   const randomDeg = () => Math.floor(Math.random() * 8) * 45;
   const SHOW_EASE = 'cubic-bezier(0.65, 0, 0.35, 1)';
   const SHOW_SECONDS = 13; // every show below fits in this
 
+  // ---- saber duel ----
+  // The Saber crazy show: the middle clocks of the second and third digit fight a sword duel. Their
+  // minute hand ignites into a glowing blade (the hour hand shrinks to its pivot as the hilt) and the
+  // clock is the fighter: it steps toward the other and back (CSS translate) while the blade swings
+  // around it. The moves follow SABER_BEATS: strike, parry, counter, thrust, a lock, and a final
+  // strike that cuts the red fighter in two. A few missed swings cut a clock next to the fight.
+  // The other clocks point at the action. Positions are in grid cells.
+  const STRIKE_EASE = 'cubic-bezier(0.5, 0, 1, 1)';
+  // A beat starts at t and lasts d seconds. blue/red move that fighter: turn the blade to deg (screen
+  // angle) or point it at a spot at: [x, y], step: cells toward the other fighter, ease: 'strike' for
+  // a hit. clash: [x, y] sparks where the blades meet when the beat ends. cut: { clock: [x, y] or
+  // 'red', by, after } cuts that clock along fighter by's blade, after seconds into the beat.
+  const SABER_BEATS = [
+    { t: 0, d: 1, blue: { deg: -40 }, red: { deg: 220 } },                                   // en garde
+    { t: 1.3, d: 0.45, blue: { deg: -125, step: 0.4 }, red: { deg: 200 },
+      cut: { clock: [2, 0], by: 0, after: 0.32 } },                                          // wind-up hits a clock
+    { t: 1.8, d: 0.22, blue: { at: [4.1, 1.15], ease: 'strike' }, red: { at: [4.1, 1.15] }, clash: [4.1, 1.15] },
+    { t: 2.3, d: 0.4, blue: { deg: -20, step: 0 }, red: { deg: 110, step: 0.4 } },           // red counters low
+    { t: 2.7, d: 0.22, blue: { at: [3.7, 1.95] }, red: { at: [3.7, 1.95], ease: 'strike' }, clash: [3.7, 1.95] },
+    { t: 3.2, d: 0.3, blue: { deg: -10, step: 0.2 }, red: { deg: 190, step: 0.3 } },
+    { t: 3.5, d: 0.2, blue: { at: [4.3, 1.45], step: 0.7, ease: 'strike' }, red: { at: [4.3, 1.45], step: 0.2 },
+      clash: [4.3, 1.45] },                                                                   // thrust, parried
+    { t: 3.9, d: 0.4, blue: { deg: -30, step: -0.3 }, red: { deg: 280, step: 0.3 } },        // red winds up, blue backs off
+    { t: 4.3, d: 0.3, red: { at: [4.5, 2.5], ease: 'strike' },
+      cut: { clock: [4, 2], by: 1, after: 0.28 } },                                          // misses, hits a clock
+    { t: 4.8, d: 0.35, blue: { deg: -100, step: 0.4 }, red: { deg: 200, step: 0.2 } },
+    { t: 5.15, d: 0.22, blue: { at: [4.3, 1.05], ease: 'strike' }, red: { at: [4.3, 1.05] }, clash: [4.3, 1.05] },
+    { t: 5.6, d: 0.35, blue: { at: [4, 1.3], step: 0.6 }, red: { at: [4, 1.3], step: 0.6 }, clash: [4, 1.3] }, // lock
+    { t: 5.95, d: 0.2, blue: { at: [4.05, 1.25] }, red: { at: [4.05, 1.25] } },
+    { t: 6.15, d: 0.2, blue: { at: [3.95, 1.35] }, red: { at: [3.95, 1.35] }, clash: [3.95, 1.35] },
+    { t: 6.35, d: 0.2, blue: { at: [4.05, 1.25] }, red: { at: [4.05, 1.25] } },
+    { t: 6.55, d: 0.2, blue: { at: [4, 1.3] }, red: { at: [4, 1.3] }, clash: [4, 1.3] },
+    { t: 6.8, d: 0.3, blue: { deg: -30, step: 0.1 }, red: { deg: 205, step: 0.1 } },         // push apart
+    { t: 7.1, d: 0.25, blue: { at: [3.6, 1.5] }, red: { at: [3.6, 1.5], step: 0.6, ease: 'strike' },
+      clash: [3.6, 1.5] },                                                                    // red lunges, parried
+    { t: 7.5, d: 0.3, blue: { deg: -60, step: 0.5 }, red: { deg: 250, step: 0.3 } },         // blade knocked up
+    { t: 7.85, d: 0.2, blue: { deg: 20, step: 0.9, ease: 'strike' },
+      cut: { clock: 'red', by: 0, after: 0.12 } },                                           // the final strike
+    { t: 8.5, d: 0.5, blue: { deg: -40, step: 0 }, red: { step: 0 } },  // red is down
+  ];
+  const SABER_END = 9; // blue retracts its blade
+
+  function spark(x, y) {
+    const r = root.getBoundingClientRect(), s = cellSize();
+    const el = document.createElement('div');
+    el.className = 'spark';
+    el.style.left = r.left + x * s + 'px';
+    el.style.top = r.top + y * s + 'px';
+    document.body.append(el);
+    el.animate([
+      { opacity: 1, transform: 'translate(-50%, -50%) scale(0.2)' },
+      { opacity: 0, transform: 'translate(-50%, -50%) scale(1.5)' },
+    ], { duration: 400, easing: 'ease-out' }).onfinish = () => el.remove();
+  }
+
+  // Slice a clock in two along deg: two clipped copies of its face drift apart and fall while the
+  // face itself is hidden, then it grows back. Not tied to the show's gen, so it always comes back.
+  function cut(clock, deg) {
+    const r = clock.face.getBoundingClientRect(), s = cellSize();
+    const a = deg * Math.PI / 180, dx = Math.cos(a), dy = Math.sin(a);
+    // a point u along the cut and v across it, far outside the face (polygon percentages)
+    const at = (u, v) => `${50 + (dx * u - dy * v) * 150}% ${50 + (dy * u + dx * v) * 150}%`;
+    for (const side of [1, -1]) {
+      const half = clock.face.cloneNode(true);
+      half.querySelectorAll('.hand').forEach(h => { h.style.transition = 'none'; });
+      Object.assign(half.style, { // the rect already includes a fighter's step
+        position: 'fixed', left: r.left + 'px', top: r.top + 'px', margin: '0', translate: 'none', transition: 'none',
+        zIndex: 3, pointerEvents: 'none',
+        clipPath: `polygon(${at(1, 0)}, ${at(-1, 0)}, ${at(-1, side)}, ${at(1, side)})`,
+      });
+      document.body.append(half);
+      const nx = -dy * side * 0.3 * s, ny = dx * side * 0.3 * s;
+      half.animate([
+        { transform: 'none', opacity: 1 },
+        { transform: `translate(${nx}px, ${ny + s}px) rotate(${side * 25}deg)`, opacity: 0 },
+      ], { duration: 1100, easing: 'ease-in' }).onfinish = () => half.remove();
+    }
+    const g = root.getBoundingClientRect();
+    spark((r.left + r.width / 2 - g.left) / s, (r.top + r.height / 2 - g.top) / s);
+    clock.face.style.opacity = 0;
+    setTimeout(() => {
+      clock.face.style.opacity = '';
+      clock.face.animate([{ transform: 'scale(0)' }, { transform: 'scale(1)' }],
+        { duration: 500, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+    }, 1200);
+  }
+
+  // A fighter goes back to being a plain clock (end of the duel, or a cancelled one).
+  function leaveDuel(clock) {
+    clock.dueling = false;
+    clock.hour.classList.remove('tucked'); // the hilt
+    clock.face.style.translate = clock.face.style.transition = clock.face.style.zIndex = clock.face.style.background = '';
+    clock.face.style.removeProperty('--glow');
+  }
+
+  // Returns how long the duel takes in seconds.
+  function saberDuel(gen) {
+    const fighters = [grid[1][2], grid[1][5]];
+    const crowd = digits.flat().filter(c => !fighters.includes(c));
+    const steps = [0, 0];
+    const later = (s, fn) => setTimeout(() => { if (gen === showGen) fn(); }, s * 1000);
+    // where a fighter's hilt (its clock's center) is, and the clock it cuts
+    const hilt = i => [fighters[i].x + 0.5 + (i ? -steps[i] : steps[i]), 1.5];
+    const target = c => c === 'red' ? hilt(1) : [c[0] + 0.5, c[1] + 0.5];
+    const watch = ([x, y], duration) => crowd.forEach(c => {
+      const deg = Math.atan2(y - (c.y + 0.5), x - (c.x + 0.5)) * 180 / Math.PI;
+      turnTo(c, deg, deg, { path: 'shortest', duration, ease: SHOW_EASE, delay: 0 });
+    });
+    const move = (i, m, d) => {
+      const f = fighters[i];
+      if (m.step !== undefined) {
+        steps[i] = m.step;
+        f.face.style.transition = `translate ${d}s ${SHOW_EASE}`;
+        f.face.style.translate = `calc(var(--s) * ${i ? -m.step : m.step}) 0`;
+      }
+      if (m.deg === undefined && !m.at) return;
+      const [hx, hy] = hilt(i);
+      const deg = m.at ? Math.atan2(m.at[1] - hy, m.at[0] - hx) * 180 / Math.PI : m.deg;
+      turnTo(f, deg, deg, { path: 'shortest', duration: d, ease: m.ease === 'strike' ? STRIKE_EASE : SHOW_EASE, delay: 0 });
+    };
+
+    digits.flat().forEach(c => c.face.classList.remove('blank'));
+    fighters.forEach((c, i) => {
+      freezeHands(c);
+      c.dueling = true;
+      c.face.style.zIndex = 2; // the blades go over the clocks between the fighters
+      c.face.style.background = 'transparent'; // and the other fighter's face doesn't hide them
+      c.face.style.setProperty('--glow', i === 0 ? 'var(--saber-a)' : 'var(--saber-b)');
+    });
+    later(1, () => fighters.forEach(c => { c.minute.classList.add('saber'); c.hour.classList.add('tucked'); }));
+    for (const beat of SABER_BEATS) {
+      later(beat.t, () => {
+        if (beat.blue) move(0, beat.blue, beat.d);
+        if (beat.red) move(1, beat.red, beat.d);
+        const [bx] = hilt(0), [rx] = hilt(1);
+        watch(beat.clash || (beat.cut ? target(beat.cut.clock) : [(bx + rx) / 2, 1.5]), beat.d);
+      });
+      if (beat.clash) later(beat.t + beat.d, () => {
+        spark(...beat.clash);
+        fighters.forEach(c => c.minute.classList.add('clash'));
+        later(0.12, () => fighters.forEach(c => c.minute.classList.remove('clash')));
+      });
+      if (beat.cut) later(beat.t + beat.cut.after, () => {
+        const { clock, by } = beat.cut;
+        const victim = clock === 'red' ? fighters[1] : grid[clock[1]][clock[0]];
+        const [hx, hy] = hilt(by), [vx, vy] = target(clock);
+        cut(victim, Math.atan2(vy - hy, vx - hx) * 180 / Math.PI);
+        if (clock === 'red') { victim.minute.classList.remove('saber'); victim.hour.classList.remove('tucked'); }
+      });
+    }
+    later(SABER_END, () => { fighters[0].minute.classList.remove('saber'); fighters[0].hour.classList.remove('tucked'); });
+    return SABER_END + 1; // the red fighter has grown back; the hold ends and the time lands
+  }
+
+  // ---- bougainvillea ----
+  // The Bougainvillea crazy show: the hands keep showing the time while a bougainvillea grows on the
+  // digits. Woody vines come up from the bottom of each digit and climb its strokes (two strands
+  // twining round the hands), thin shoots curl round the rims of the faces, leaves sprout behind the
+  // growing tips, then clusters of three magenta bracts round a small white flower pop open. At the
+  // end the bracts fall and sway and the plant fades. Drawn in an SVG layer (.bloom) whose viewBox is
+  // the 8×3 grid, so all sizes are in cells. Vines grow by revealing their stroke (stroke-dashoffset).
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const BLOOM_SPEED = 1.6;    // vine growth in cells per second
+  const BLOOM_FALL = 8.5;     // the bracts start to fall
+  const BLOOM_SECONDS = 12;
+  const BRACT_COLORS = ['#c2185b', '#d81b7a', '#e0218a', '#b5166b', '#d63384'];
+  const BRACT = 'M0 0C-0.05 -0.02 -0.065 -0.1 0 -0.12C0.065 -0.1 0.05 -0.02 0 0Z'; // one bract, pointing up
+  const LEAF = 'M0 0Q0.035 -0.03 0.09 0Q0.035 0.03 0 0Z';
+  let bloom = null; // the svg layer while the show plays
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const cosd = a => Math.cos(a * Math.PI / 180), sind = a => Math.sin(a * Math.PI / 180);
+
+  function svgEl(tag, attrs, parent) {
+    const el = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    parent.append(el);
+    return el;
+  }
+
+  function clearBloom() {
+    bloom?.remove();
+    bloom = null;
+  }
+
+  // A vine strand from a to b, waving round the straight line (amp cells, waves times).
+  function strand([ax, ay], [bx, by], waves, amp, phase) {
+    const len = Math.hypot(bx - ax, by - ay), nx = -(by - ay) / len, ny = (bx - ax) / len;
+    let d = '';
+    for (let i = 0; i <= 24; i++) {
+      const t = i / 24, w = amp * Math.sin(2 * Math.PI * waves * t + phase);
+      d += `${i ? 'L' : 'M'}${(ax + (bx - ax) * t + nx * w).toFixed(3)} ${(ay + (by - ay) * t + ny * w).toFixed(3)}`;
+    }
+    return d;
+  }
+
+  // A shoot curling round the rim of the face centered at (cx, cy), from angle a over sweep degrees.
+  function tendril(cx, cy, a, sweep) {
+    let d = '';
+    for (let i = 0; i <= 32; i++) {
+      const deg = a + sweep * i / 32, r = 0.46 + 0.012 * Math.sin(i * 1.3);
+      d += `${i ? 'L' : 'M'}${(cx + r * cosd(deg)).toFixed(3)} ${(cy + r * sind(deg)).toFixed(3)}`;
+    }
+    return d;
+  }
+
+  function bougainvillea() {
+    const r = root.getBoundingClientRect(), s = cellSize();
+    bloom = document.createElementNS(SVG_NS, 'svg');
+    bloom.setAttribute('class', 'bloom');
+    bloom.setAttribute('viewBox', '0 0 8 3');
+    Object.assign(bloom.style, { left: r.left + 'px', top: r.top + 'px', width: 8 * s + 'px', height: 3 * s + 'px' });
+    document.body.append(bloom);
+    const plant = svgEl('g', {}, bloom), bracts = svgEl('g', {}, bloom);
+
+    const leaf = (x, y, deg, t) => {
+      const g = svgEl('g', { transform: `translate(${x} ${y}) rotate(${deg})` }, plant);
+      svgEl('path', { d: LEAF, class: 'leaf' }, g)
+        .animate([{ transform: 'scale(0)' }, { transform: 'scale(1)' }], { duration: 400, delay: t * 1000, easing: 'ease-out', fill: 'backwards' });
+    };
+    const flower = (x, y, t) => {
+      const pop = svgEl('g', {}, svgEl('g', { transform: `translate(${x} ${y}) scale(${rand(0.8, 1.25)})` }, bracts));
+      pop.animate([{ transform: 'scale(0)' }, { transform: 'scale(1.15)', offset: 0.7 }, { transform: 'scale(1)' }],
+        { duration: 500, delay: t * 1000, easing: 'ease-out', fill: 'backwards' });
+      const color = BRACT_COLORS[Math.floor(Math.random() * BRACT_COLORS.length)], base = rand(0, 120);
+      for (let k = 0; k < 3; k++) {
+        const fall = svgEl('g', {}, pop);
+        fall.style.transformBox = 'fill-box';
+        fall.style.transformOrigin = 'center';
+        svgEl('path', { d: BRACT, fill: color, transform: `rotate(${base + k * 120})` }, fall);
+        if (k === 0) svgEl('circle', { r: 0.014, class: 'blossom' }, fall); // the small white flower
+        // falls below the grid, swaying
+        const dx = rand(-0.4, 0.4), dy = 3.6 - y;
+        fall.animate([
+          { transform: 'translate(0px, 0px) rotate(0deg)', opacity: 1 },
+          { transform: `translate(${dx * 0.4}px, ${dy * 0.3}px) rotate(${rand(-90, 90)}deg)`, opacity: 1, offset: 0.3 },
+          { transform: `translate(${-dx * 0.3}px, ${dy * 0.65}px) rotate(${rand(-180, 180)}deg)`, opacity: 0.9, offset: 0.65 },
+          { transform: `translate(${dx}px, ${dy}px) rotate(${rand(-270, 270)}deg)`, opacity: 0 },
+        ], { duration: rand(1.4, 2) * 1000, delay: (BLOOM_FALL + rand(0, 1.3)) * 1000, easing: 'ease-in', fill: 'forwards' });
+      }
+    };
+    // Grow a vine or shoot from start for dur seconds, with leaves and flowers along it (bare: none,
+    // for the second strand of a twining pair; it keeps the element count down for the Pi).
+    const grow = (d, cls, start, dur, bare = false) => {
+      const path = svgEl('path', { d, class: cls }, plant);
+      const len = path.getTotalLength();
+      path.style.strokeDasharray = len;
+      path.style.strokeDashoffset = len;
+      path.animate([{ strokeDashoffset: len }, { strokeDashoffset: 0 }],
+        { duration: dur * 1000, delay: start * 1000, easing: 'linear', fill: 'forwards' });
+      if (bare) return;
+      const reach = l => start + dur * l / len; // when the tip gets there
+      let side = Math.random() < 0.5 ? 1 : -1;
+      for (let l = rand(0.05, 0.2); l < len; l += rand(0.16, 0.28)) {
+        const p = path.getPointAtLength(l), q = path.getPointAtLength(Math.min(len, l + 0.01));
+        leaf(p.x, p.y, Math.atan2(q.y - p.y, q.x - p.x) * 180 / Math.PI + (side = -side) * 55, reach(l));
+      }
+      for (let n = Math.round(len * rand(1.2, 2.2)); n > 0; n--) {
+        const l = rand(0, len), p = path.getPointAtLength(l);
+        flower(p.x, p.y, Math.min(BLOOM_FALL - 0.4, reach(l) + rand(0.6, 2.2)));
+      }
+    };
+
+    // The digits as a graph: a node per clock that is part of a digit, a stroke where two clocks'
+    // hands point at each other, a stub where a hand points at nothing.
+    const center = c => [c.x + 0.5, c.y + 0.5];
+    const dirsOf = c => isBlank(c.pose) ? [] : poseAngles(c.pose).map(deg => DIRS[deg]).filter(Boolean);
+    const nodes = digits.flat().filter(c => dirsOf(c).length);
+    const strokes = [], stubs = [];
+    for (const c of nodes) {
+      for (const [dx, dy] of dirsOf(c)) {
+        const n = grid[c.y + dy]?.[c.x + dx];
+        if (n && dirsOf(n).some(([ex, ey]) => ex === -dx && ey === -dy)) {
+          if (c.x + c.y * 8 < n.x + n.y * 8) strokes.push([c, n]);
+        } else stubs.push([c, [c.x + 0.5 + dx * 0.45, c.y + 0.5 + dy * 0.45]]);
+      }
+    }
+    // when the vine reaches each clock: from the bottom of each digit, one stroke per 1/BLOOM_SPEED
+    const reached = new Map();
+    for (const clocks of digits) {
+      const bottom = clocks.filter(c => nodes.includes(c) && c.y === 2);
+      const start = rand(0.1, 0.5);
+      for (const c of bottom) {
+        reached.set(c, start + 0.5 / BLOOM_SPEED);
+        const [x, y] = center(c);
+        for (const phase of [0, Math.PI]) grow(strand([x, 3], [x, y], 1, 0.04, phase), 'vine', start, 0.5 / BLOOM_SPEED, phase > 0);
+      }
+    }
+    for (let i = 0; i < nodes.length; i++) {
+      for (const [a, b] of strokes) {
+        const ta = reached.get(a) ?? Infinity, tb = reached.get(b) ?? Infinity;
+        if (ta + 1 / BLOOM_SPEED < tb) reached.set(b, ta + 1 / BLOOM_SPEED);
+        if (tb + 1 / BLOOM_SPEED < ta) reached.set(a, tb + 1 / BLOOM_SPEED);
+      }
+    }
+    for (const [a, b] of strokes) {
+      const [from, to] = (reached.get(a) ?? 0) <= (reached.get(b) ?? 0) ? [a, b] : [b, a];
+      const t = reached.get(from) ?? 0;
+      for (const phase of [0, Math.PI]) grow(strand(center(from), center(to), 2, 0.05, phase), 'vine', t, 1 / BLOOM_SPEED, phase > 0);
+    }
+    for (const [c, tip] of stubs) {
+      grow(strand(center(c), tip, 1, 0.04, 0), 'vine', reached.get(c) ?? 0, 0.45 / BLOOM_SPEED);
+    }
+    // shoots round the rims, starting next to a stroke
+    for (const c of nodes) {
+      const dirs = dirsOf(c);
+      for (let n = 1 + Math.floor(Math.random() * 2); n > 0; n--) {
+        const [dx, dy] = dirs[Math.floor(Math.random() * dirs.length)];
+        const turn = Math.random() < 0.5 ? 1 : -1, sweep = turn * rand(90, 200);
+        const a = Math.atan2(dy, dx) * 180 / Math.PI + turn * rand(15, 40);
+        grow(tendril(...center(c), a, sweep), 'tendril', (reached.get(c) ?? 0) + rand(0.1, 0.6),
+          0.46 * Math.abs(sweep) * Math.PI / 180 / BLOOM_SPEED * 1.2);
+      }
+    }
+    plant.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 1500, delay: (BLOOM_FALL + 1.5) * 1000, fill: 'forwards' });
+  }
+
   const SHOWS = {
-    random: randomChoice(),
     rain: { name: 'Rain', steps: [
       { angles: () => [45, 225], dur: 3, delay: c => c.x * 0.1, path: 'shortest' },
       { angles: () => [45, 225], dur: 5, delay: c => c.x * 0.2, path: 'spin' },
-    ] },
-    flower: { name: 'Flower', steps: [
-      { angles: c => [outward(c), outward(c) + 180], dur: 3, delay: c => dist(c) * 0.3, path: 'shortest' },
-      { angles: c => [outward(c) + 90, outward(c) - 90], dur: 4, delay: c => dist(c) * 0.3, path: 'clockwise' },
-      { angles: c => [outward(c), outward(c)], dur: 3, delay: () => 0, path: 'shortest' },
     ] },
     ripple: { name: 'Ripple', steps: [
       { angles: () => [90, 270], dur: 3, delay: () => 0, path: 'shortest' },
@@ -672,8 +1024,12 @@
       { angles: () => [randomDeg(), randomDeg()], dur: 2.5, delay: () => Math.random() * 0.8, path: 'opposite' },
       { angles: () => [randomDeg(), randomDeg()], dur: 2.5, delay: () => Math.random() * 0.8, path: 'clockwise' },
     ] },
-    // A whole-screen scene instead of steps: see breakShot().
-    billiard: { name: 'Billiard' },
+    // Whole-screen scenes instead of steps: play(gen) starts one and returns its length in seconds.
+    billiard: { name: 'Billiard', play: () => { breakShot(); return BILLIARD_SECONDS; } },
+    saber: { name: 'Saber', play: saberDuel },
+    // keepLinks: the hands keep showing the time, so magnet links stay
+    bougainvillea: { name: 'Bougainvillea', play: () => { bougainvillea(); return BLOOM_SECONDS; }, keepLinks: true },
+    random: randomChoice(),
   };
   CHOICES.show = SHOWS;
   loadSettings();
@@ -691,10 +1047,10 @@
     });
     const id = settings.show !== 'random' ? settings.show
       : randomFrom(Object.keys(SHOWS).filter(id => !SHOWS[id].random));
-    retractHands();
-    if (id === 'billiard') {
-      breakShot(); // the hands keep showing the time while the balls roll
-      holdUntil = new Date(Date.now() + BILLIARD_SECONDS * 1000);
+    endScenes();
+    if (!SHOWS[id].keepLinks) retractHands();
+    if (SHOWS[id].play) { // a scene; Billiard keeps the hands showing the time while the balls roll
+      holdUntil = new Date(Date.now() + SHOWS[id].play(gen) * 1000);
       return;
     }
     clocks.forEach(c => c.face.classList.remove('blank'));

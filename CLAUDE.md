@@ -95,8 +95,8 @@ whose pose changed. `clock.realGen` cancels a stale second half; `goCrazy()` bum
 
 ## Billiard
 
-Billiard is a crazy show (`SHOWS.billiard`, no `steps`), not a face move. `goCrazy()` calls
-`breakShot()` and holds for `BILLIARD_SECONDS`; the hands keep showing the time (blank faces stay
+Billiard is a crazy show (`SHOWS.billiard`, a scene with `play()`), not a face move. Its `play()`
+calls `breakShot()` and returns `BILLIARD_SECONDS`; the hands keep showing the time (blank faces stay
 blank) and the new time lands afterwards. `breakShot()` drives a rAF loop (`roll()`) through `PHASES`: shrink to `BALL` size (the balls stay black) → the 21 clocks outside the cue column glide into a 6-row triangle (`rack()`), the
 column's middle clock becomes the cue ball and the other two line up behind it → `aim`: those two
 turn their hour hand at the ball and minute hand straight back (one straight line through both
@@ -108,12 +108,51 @@ friction) → glide home → grow. It writes the CSS `translate`/`scale` propert
 `transform`, so they combine with the other moves). Calling it again mid-scene restarts from
 the current positions.
 
+## Saber
+
+Saber is a scene too (`SHOWS.saber`, `saberDuel(gen)`): a hand-held sword duel between the middle
+clocks of digits 2 and 3 (`grid[1][2]` blue, `grid[1][5]` red). Their minute hand ignites into a
+blade (`.hand.saber`, 1.9 cells, white core with a `--glow` box-shadow from `--saber-a`/`--saber-b`);
+the hour hand is `tucked` as the hilt. The clock is the fighter: the blade swings around its center
+and the clock steps toward the other one and back (CSS `translate` with a transition). The fight is
+data: `SABER_BEATS`, each `{ t, d, blue, red, clash, cut }`; a move turns the blade to `deg` or
+points it `at` a spot (computed from the hilt after the step), `step` is cells toward the other
+fighter, `ease: 'strike'` for a hit. `clash` fires `spark()` (a fading `.spark` div) and a white
+flash when the beat ends; `cut` calls `cut()` on a clock next to the fight (a missed swing) or on
+the red fighter (the final strike). `cut()` makes two `clip-path` half-plane copies of the face that
+drift apart and fall while the face is hidden, then it grows back (an ungated timeout, so a
+cancelled show never leaves a face hidden). The other clocks point at each beat's action.
+Fighters get `dueling`, `z-index: 2` and a transparent face (so the other fighter's face doesn't
+hide a blade); `leaveDuel()` undoes that (and the hilt) and is called from `endScenes()`, as is the removal of
+`saber`/`clash`, so a cancelled duel leaves nothing behind.
+
+## Bougainvillea
+
+Bougainvillea is a scene (`SHOWS.bougainvillea`, `bougainvillea()`, replaced the old Flower show).
+The hands keep showing the time (blank faces stay blank) while a plant grows on the digits in an SVG
+layer (`.bloom`, fixed over `root`, `viewBox="0 0 8 3"`, so every size is in cells; colors
+`--vine`/`--shoot`/`--leaf` and `BRACT_COLORS`). The digits become a graph: a node per non-blank
+clock (all digit poses are axis-aligned, read via `poseAngles()`/`DIRS`), a stroke where two
+clocks' hands point at each other, a stub where a hand points at nothing. Vines start below the
+bottom row of each digit and spread through the strokes at `BLOOM_SPEED` cells/s (arrival times by
+relaxing over the strokes); each stroke is two strands twining round the hands (`strand()`, sine
+offsets that cross at the clock centers), plus shoots round the rims (`tendril()`). `grow()` reveals
+a path with an animated `stroke-dashoffset` and adds leaves behind the tip and bract clusters (three
+`BRACT`s round a white `.blossom`) a little later; the second strand of a pair is `bare` to keep the
+element count down for the Pi (about 1,300 SVG elements). At `BLOOM_FALL` each bract falls and sways
+(CSS transforms in user units, `transform-box: fill-box`) and the plant fades; `clearBloom()`
+(called from `endScenes()`) removes the layer when the time lands or another show starts.
+
 ## Crazy shows
 
-`SHOWS` maps ids to `{ name, steps }`; `steps` is a list of `{ angles(clock), dur, delay(clock), path }`
-played in order by `goCrazy()` via `turnTo()` (which takes raw angles, unlike `setPose`).
+`SHOWS` maps ids to `{ name, steps }` or, for a whole-screen scene, `{ name, play(gen) }`, where
+`play` starts the scene and returns its length in seconds (Billiard, Saber). `steps` is a list of
+`{ angles(clock), dur, delay(clock), path }` played in order by `goCrazy()` via `turnTo()` (which
+takes raw angles, unlike `setPose`). Random is the last entry in every options table.
 `goCrazy()` plays `settings.show` (Random picks any other entry). During a step show all hands
-show (blank faces included); magnet links retract during any show. `holdUntil`
+show (blank faces included). Magnet links retract when a show starts, except for shows with
+`keepLinks` (Bougainvillea: the hands keep showing the time). `endScenes()` (in `goCrazy()` and
+`showTime()`) removes what a scene left behind, separate from `retractHands()`. `holdUntil`
 pauses `tick()` for previews and shows; when it expires, `tick()` lands on the current time.
 The `crazy` setting plays a show before every 1/5/60th minute; `tick()` starts that minute's
 switch `SHOW_SECONDS` earlier. Every show must fit in `SHOW_SECONDS`. `showGen` cancels a

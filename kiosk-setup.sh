@@ -6,7 +6,7 @@
 #   bash kiosk-setup.sh [--url URL] [--upside-down] [--no-sudo]
 #
 #   --url URL       page to show (default: the GitHub Pages clock)
-#   --upside-down   the display is mounted upside down: rotate boot logo, desktop and touch
+#   --upside-down   the display is mounted upside down: turn desktop, touch and boot text
 #   --no-sudo       only the parts in your home folder; print the system parts instead
 #
 # Without sudo (home folder): kiosk launcher + autostart, GPU renderer on Pi 3 and older,
@@ -82,28 +82,34 @@ systemctl --user mask pipewire.socket pipewire.service pipewire-pulse.socket pip
   gvfs-goa-volume-monitor.service gvfs-gphoto2-volume-monitor.service gvfs-mtp-volume-monitor.service \
   >/dev/null 2>&1 || true
 
-if [ $UPSIDE_DOWN = 1 ] && [ -f ~/.config/kanshi/config ]; then
-  # the driver rotates the picture (see below); a 180 here as well would rotate it twice
-  sed -i 's/transform 180/transform normal/' ~/.config/kanshi/config
+# Upside-down display: labwc rotates the output (kanshi transform 180), so the picture, the
+# mouse pointer, popups and touch all turn together. Rotating in the driver instead
+# (panel_orientation) only turned the main picture layer: the pointer and Chromium's dropdown
+# popups showed upside down and mirrored.
+OUT=$(ls /sys/class/drm/ | sed -n 's/^card[0-9]*-\(DSI-[0-9]\)$/\1/p' | head -1)
+[ -n "$OUT" ] || OUT=$(ls /sys/class/drm/ | sed -n 's/^card[0-9]*-\(HDMI-A-[0-9]\)$/\1/p' | head -1)
+if [ $UPSIDE_DOWN = 1 ]; then
+  [ -n "$OUT" ] || { echo "No display found to rotate."; exit 1; }
+  step "Upside-down display: labwc turns $OUT"
+  mkdir -p ~/.config/kanshi
+  if [ -f ~/.config/kanshi/config ]; then
+    sed -i 's/transform [a-z0-9-]*/transform 180/' ~/.config/kanshi/config
+    grep -q 'transform 180' ~/.config/kanshi/config ||
+      sed -i "s/output $OUT enable/output $OUT enable transform 180/" ~/.config/kanshi/config
+  else
+    printf 'profile {\n\toutput %s enable transform 180\n}\n' "$OUT" > ~/.config/kanshi/config
+  fi
 fi
 
 # ---- system (sudo) ----
-
-# Upside-down display: rotate once, in the driver. panel_orientation also turns the boot logo
-# (rotate=180 would only turn the text console). The output and its mode come from the driver.
-OUT=$(ls /sys/class/drm/ | sed -n 's/^card[0-9]*-\(DSI-[0-9]\)$/\1/p' | head -1)
-[ -n "$OUT" ] || OUT=$(ls /sys/class/drm/ | sed -n 's/^card[0-9]*-\(HDMI-A-[0-9]\)$/\1/p' | head -1)
-MODE=$(head -1 /sys/class/drm/card*-"$OUT"/modes 2>/dev/null)
-VIDEO="video=$OUT:${MODE}@60,panel_orientation=upside_down"
-TOUCH_RULE='ENV{ID_INPUT_TOUCHSCREEN}=="1", ENV{LIBINPUT_CALIBRATION_MATRIX}="-1 0 1 0 -1 1"'
 
 if [ $USE_SUDO = 0 ]; then
   echo
   echo "Skipped (--no-sudo). The system part would:"
   echo "  - turn on desktop auto-login and turn off screen blanking (raspi-config)"
   echo "  - disable Bluetooth and mask packagekit"
-  [ $UPSIDE_DOWN = 1 ] && echo "  - add '$VIDEO' to /boot/firmware/cmdline.txt, disable_splash=1 to config.txt," &&
-    echo "    and flip touch with a udev rule"
+  [ $UPSIDE_DOWN = 1 ] && echo "  - turn the boot text in /boot/firmware/cmdline.txt (fbcon=rotate:2, no logo)," &&
+    echo "    disable_splash=1 in config.txt, and remove an older driver rotation and touch rule"
   echo "Then reboot."
   exit 0
 fi
@@ -116,18 +122,19 @@ sudo systemctl disable --now bluetooth >/dev/null 2>&1 || true
 sudo systemctl mask packagekit >/dev/null 2>&1 || true
 
 if [ $UPSIDE_DOWN = 1 ]; then
-  [ -n "$OUT" ] && [ -n "$MODE" ] || { echo "No display found to rotate."; exit 1; }
-  step "Upside-down display: $OUT $MODE"
+  step "Upside-down display: boot text"
   CMDLINE=/boot/firmware/cmdline.txt
   [ -f $CMDLINE.gclock-bak ] || sudo cp $CMDLINE $CMDLINE.gclock-bak
-  # replace any earlier video= setting for this output, then add ours (cmdline.txt is one line)
-  sudo sed -i -e "s/ video=$OUT:[^ ]*//g" -e "1 s/\$/ $VIDEO/" $CMDLINE
+  # The boot logo can't be turned without the driver rotation, so no logo: the boot messages
+  # show instead, turned by fbcon=rotate:2. Also drop a panel_orientation from an older setup,
+  # or labwc's rotation would turn the picture back (cmdline.txt is one line).
+  sudo sed -i -e "s/ video=[^ ]*panel_orientation=[^ ]*//g" -e 's/ quiet\b//' -e 's/ splash\b//' $CMDLINE
+  grep -q 'fbcon=rotate:2' $CMDLINE || sudo sed -i '1 s/$/ fbcon=rotate:2/' $CMDLINE
   CONFIG=/boot/firmware/config.txt
   [ -f $CONFIG.gclock-bak ] || sudo cp $CONFIG $CONFIG.gclock-bak
   grep -q '^disable_splash=1' $CONFIG || echo 'disable_splash=1' | sudo tee -a $CONFIG >/dev/null
-  # labwc doesn't rotate touch for a driver-level orientation, so flip it here
-  printf '# display mounted upside down (panel_orientation in cmdline.txt): flip touch to match\n%s\n' "$TOUCH_RULE" |
-    sudo tee /etc/udev/rules.d/99-gclock-touch-rotate.rules >/dev/null
+  # an older setup flipped touch for the driver rotation; labwc turns touch with the output
+  sudo rm -f /etc/udev/rules.d/99-gclock-touch-rotate.rules
 fi
 
 echo

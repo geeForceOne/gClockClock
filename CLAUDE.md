@@ -223,12 +223,14 @@ Notes from the reference setup (Pi 3B, Raspberry Pi OS trixie, labwc, 7" DSI tou
   (squeekboard, polkit agent, pprompt, pwrkey; keep autotouch), mask unused user services
   (pipewire, wireplumber, filter-chain, mpris-proxy, gvfs phone/camera monitors); Chromium's cache
   goes to `/dev/shm`. Bluetooth and packagekit can be disabled (sudo).
-- Display mounted upside down: rotate once, in the driver —
-  `video=DSI-1:800x480@60,panel_orientation=upside_down` in `/boot/firmware/cmdline.txt` (rotates
-  the boot logo and desktop; `rotate=180` only rotates the text console, not Plymouth), plus
-  `disable_splash=1` in `config.txt`. Keep kanshi at `transform normal` (180 there rotates twice).
-  labwc doesn't rotate touch for a driver-level orientation, so flip it with a udev rule:
-  `ENV{ID_INPUT_TOUCHSCREEN}=="1", ENV{LIBINPUT_CALIBRATION_MATRIX}="-1 0 1 0 -1 1"`.
+- Display mounted upside down: rotate once, in labwc — kanshi `transform 180` in
+  `~/.config/kanshi/config`, so picture, pointer, popups and touch turn together. Don't rotate in
+  the driver as well (`panel_orientation=upside_down` in `cmdline.txt` rotates twice). The driver
+  rotation was tried first, for the boot logo, but it only turns the main picture layer: the
+  mouse pointer and Chromium's `<select>` popups (other hardware planes) showed upside down and
+  mirrored, and touch needed a udev flip. The boot logo can't be turned without it, so
+  `cmdline.txt` has no `quiet splash` (no logo) and `fbcon=rotate:2` turns the boot text;
+  `disable_splash=1` in `config.txt` hides the firmware rainbow.
 - Firefox is no alternative on a Pi 3: WebRender needs GL ES 3.0, the Pi 3 GPU has 2.0 (it would
   composite on the CPU). Chromium works with ES 2.0.
 

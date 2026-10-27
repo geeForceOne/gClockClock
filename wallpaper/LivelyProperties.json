@@ -151,7 +151,7 @@
   "show": {
     "type": "dropdown",
     "text": "Show",
-    "value": 7,
-    "items": ["Rain", "Ripple", "Scissors", "Chaos", "Billiard", "Saber", "Bougainvillea", "Random"]
+    "value": 10,
+    "items": ["Rain", "Ripple", "Scissors", "Chaos", "Billiard", "Saber", "Tron", "Tron 2", "Matrix", "Bougainvillea", "Random"]
   }
 }

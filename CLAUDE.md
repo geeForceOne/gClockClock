@@ -127,17 +127,71 @@ Saber is a scene too (`SHOWS.saber`, `saberDuel(gen)`): a hand-held sword duel b
 clocks of digits 2 and 3 (`grid[1][2]` blue, `grid[1][5]` red). Their minute hand ignites into a
 blade (`.hand.saber`, 1.9 cells, white core with a `--glow` box-shadow from `--saber-a`/`--saber-b`);
 the hour hand is `tucked` as the hilt. The clock is the fighter: the blade swings around its center
-and the clock steps toward the other one and back (CSS `translate` with a transition). The fight is
-data: `SABER_BEATS`, each `{ t, d, blue, red, clash, cut }`; a move turns the blade to `deg` or
-points it `at` a spot (computed from the hilt after the step), `step` is cells toward the other
-fighter, `ease: 'strike'` for a hit. `clash` fires `spark()` (a fading `.spark` div) and a white
-flash when the beat ends; `cut` calls `cut()` on a clock next to the fight (a missed swing) or on
-the red fighter (the final strike). `cut()` makes two `clip-path` half-plane copies of the face that
+and the clock steps toward the other one and back (CSS `translate` with a transition). Every fight
+is new: `saberFight()` builds a list of beats from random moves (`strike` high or low, `thrust`,
+at most one `lock`, at most two `miss`es that cut a clock above or below the attacker) until
+`SABER_FIGHT`, then a random winner knocks the other blade up and cuts the loser. It tracks the
+steps itself so every clash spot is within `SABER_REACH` of both hilts (`spot()`). A beat is
+`{ t, d, blue, red, clash, cut }`; a move turns the blade to `deg` (local angles via `deg(i, a)`:
+0 points at the other fighter, negative is up) or points it `at` a spot (computed from the hilt
+after the step), `step` is cells toward the other fighter, `ease: 'strike'` for a hit. `clash`
+fires `spark()` (a fading `.spark` div) and a white flash when the beat ends; `cut: { victim, at,
+by, after }` calls `cut()` along fighter `by`'s blade. `cut()` makes two `clip-path` half-plane copies of the face that
 drift apart and fall while the face is hidden, then it grows back (an ungated timeout, so a
 cancelled show never leaves a face hidden). The other clocks point at each beat's action.
 Fighters get `dueling`, `z-index: 2` and a transparent face (so the other fighter's face doesn't
 hide a blade); `leaveDuel()` undoes that (and the hilt) and is called from `endScenes()`, as is the removal of
 `saber`/`clash`, so a cancelled duel leaves nothing behind.
+
+## Tron
+
+Tron is a scene (`SHOWS.tron`, `lightCycles(gen)`): two light cycles (`--tron-a` cyan from the left,
+`--tron-b` orange from the right, random rows) race over the clock centers, one cell per
+`TRON_STEP`, turning only at right angles. `raceCycles()` works out the whole race first (so the
+length is known): each step `steer()` picks a free cell straight on, left or right (weighted toward
+straight on and away from dead ends); a cycle with no free cell, or the loser of two that want the
+same cell, crashes (`crash`, `bump` = where it wanted to go); the winner rides on up to `TRON_LAP`
+cells (both crashing at once is a draw). The trail is the hands: all hands shrink to `tucked` dots
+and the rims become `--tron-grid`; the clock a cycle leaves turns its minute hand at the next cell
+(instantly) and grows it to `reach` with a linear width transition that keeps pace with the head;
+`.hand.trail` colors it from the face's `--trail`. The head is a `.cycle` div (CSS `translate`
+and `rotate`). A crash bumps the head forward and derezzes it into `.pixel` divs; each trail then
+flickers out back along its path (Web Animation with `fill: forwards`, cancelled in `onfinish` after
+the hand is a dot again). `clearTron()` (from `endScenes()`, only if `tronOn`) removes the heads,
+pixels, classes and animations.
+
+Tron 2 (`SHOWS.tron2`, `traceTime(gen)`) shares the look and `clearTron()`, but the cycles ride the
+strokes of the time in `shown`: a graph of the new poses (two clocks are joined where either points
+at the other), traversed breadth first from an end of each group (random), one stroke per
+`TRON2_STEP`; at a fork another head splits off, so every stroke is drawn once. The dots turn to
+the new pose while they are dots; a wall is the hand pointing along the stroke, revealed with an
+animated `clip-path` (from the pivot, or from the tip when only the far clock's hand points back).
+At the end `settle()` lands it (see Matrix).
+
+## Matrix
+
+Matrix (`SHOWS.matrix`, `matrixRain(gen)`) also builds the time in `shown`. Green code rain falls
+in every face of the new time (blank ones stay dark): one `<canvas>` (`.matrix`, over the faces but
+under the hands, which have `z-index: 1`), mirrored with `setTransform` so the glyphs are mirrored
+as in the film, clipped to the face circles, redrawn once per `MATRIX_TICK` (no rAF; cheap on the
+Pi). A face is a grid of `MATRIX_COLUMNS` × `MATRIX_COLUMNS` glyph cells (odd, so a column and a
+row run through the center); one stream per column, each a bright head and a fading tail of
+`MATRIX_GLYPHS` (ASCII only: the Pi has no Japanese font). The rain builds the hands: `builds` holds
+each clock's hand cells (center out along each hand of the new pose); when a head passes an empty
+one, its glyph locks there with chance `matrixLock(t)` (0 at first, 1 before `MATRIX_STOP`) and
+stays, bright, while the rain goes on; a column with empty cells restarts at once; a safety net
+locks the rest just before `MATRIX_STOP`. When a clock's cells are all locked they flash white and
+dissolve, and its solid hands fade in as `.hand.code`. All faces start `blank`, the hands turn to
+the new pose while hidden (`poseNow()`), the time's rims turn `--matrix-rim` (`.face.coded`).
+After `MATRIX_STOP` no stream restarts and `settle()` runs; `clearMatrix()` (from the timer when the rain is gone, or
+`endScenes()`) removes the canvas.
+
+Tron 2 and Matrix land on the time without turning a hand: `settle(hhmm, poses)` cools the hands to
+white (background/box-shadow transitions, `SETTLE_SECONDS`), gives them their Magnet link classes
+(`handLinks()`) and sets `landedOn`. `showTime()` for that time then turns nothing
+(`setPose(…, still)`) and `linkHands(true)` links at once, Magnet on or off, so the joined hands stay
+until the next time change. `endScenes()` clears `landedOn` (after `showTime()` has read it).
+`posesOf(hhmm)` and `poseNow(clock, pose)` are the shared helpers.
 
 ## Bougainvillea
 
@@ -159,7 +213,7 @@ element count down for the Pi (about 1,300 SVG elements). At `BLOOM_FALL` each b
 ## Crazy shows
 
 `SHOWS` maps ids to `{ name, steps }` or, for a whole-screen scene, `{ name, play(gen) }`, where
-`play` starts the scene and returns its length in seconds (Billiard, Saber). `steps` is a list of
+`play` starts the scene and returns its length in seconds (Billiard, Saber, Tron, Bougainvillea). `steps` is a list of
 `{ angles(clock), dur, delay(clock), path }` played in order by `goCrazy()` via `turnTo()` (which
 takes raw angles, unlike `setPose`). Random is the last entry in every options table.
 `goCrazy()` plays `settings.show` (Random picks any other entry). During a step show all hands

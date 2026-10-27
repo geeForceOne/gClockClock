@@ -1,0 +1,14 @@
+{
+  "AppVersion": "1.0.0.0",
+  "Title": "gClockClock",
+  "Thumbnail": null,
+  "Preview": null,
+  "Desc": "ClockClock 24 style clock in a corner of your own background image. Right-click > Customize to set the image, position and size.",
+  "Author": "geeForceOne",
+  "License": "MIT",
+  "Contact": "https://github.com/geeForceOne/gClockClock",
+  "Type": 1,
+  "FileName": "index.html",
+  "Arguments": null,
+  "IsAbsolutePath": false
+}

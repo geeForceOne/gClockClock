@@ -7,6 +7,8 @@ turn to form the time. Plain HTML/CSS/JS, no build, no dependencies.
 
 - `clock.html` — the whole app (markup, styles, script). Open it in a browser to run.
 - `kiosk-setup.sh` — sets up a Raspberry Pi to show the clock full screen (see Deploy).
+- `wallpaper/` — Lively Wallpaper package: the clock in a corner of a background image (see Lively).
+- `lively-setup.ps1` — installs or updates that package in Lively (see Lively).
 - `README.md`, `LICENSE` (MIT, geeForceOne).
 
 ## Workflow
@@ -54,18 +56,29 @@ The original has no options or click dialog; all options here are new.
 ## Options panel
 
 The options live in a `<dialog>` opened by clicking the first clock (top-left of the first
-digit); a click outside (or Esc) closes it — there is no × button. It is kept as small as possible
-(no title, no option descriptions, `width: fit-content`) and sits low on the screen with a light backdrop so previews stay visible. Clicking the last clock (bottom-right) plays a crazy show. The clock itself
-fills the whole window.
+digit); a click outside (or Esc) closes it — there is no × button. With `?wallpaper` (the Lively
+wallpaper) the first clock opens nothing; its settings come from Lively's Customize panel. It is
+kept small (no title, no option descriptions, `width: fit-content`) and sits low on the screen
+with a light backdrop so previews stay visible. Clicking the last clock (bottom-right) plays a
+crazy show. The clock itself fills the whole window.
 
-Two sections, split by an `<hr class="divider">`: the time change (Path, Easing, Wave, Magnet,
-Faces, Duration + Preview) and crazy mode (Crazy = how often + Go crazy, Show = which show).
-They are defined as data (`PATHS`, `EASINGS`, `WAVES`, `MAGNETS`, `FACES`, `CRAZY`, `SHOWS`) and
-rendered from `CHOICES`; buttons are generated per `.group[data-key]`. To add an option, add an
-entry to the table — the UI picks it up. `SHOWS` is defined further down, so it joins `CHOICES`
-there and `loadSettings()` runs right after it. Settings persist in `localStorage`
-(`clockclock-settings`), validated on load, wrapped in try/catch. Clicking a Crazy or Show option
-plays a show; any other option or Preview animates to a random time and back.
+Three columns (`.section`, side by side, stacked below 700px), each a grid of label + control
+rows of the same height (`--row`): Time change (Path, Easing, Wave, Magnet, Faces as `<select>`s,
+Duration slider, Preview), Look (face color + None = `clear`, hand color, rim color + Fade =
+`fade`, Spacing = `gap` slider),
+Crazy (how often, Show, Go crazy). The dialog has its own color tokens, so the Look settings
+don't recolor it. The selects are generated from the tables (`PATHS`, `EASINGS`, `WAVES`,
+`MAGNETS`, `FACES`, `CRAZY`, `SHOWS`) via `CHOICES` per `select[data-key]`. To add an option, add
+an entry to the table — the UI picks it up (and mirror it in the Lively package, see Lively).
+`SHOWS` is defined further down, so it joins `CHOICES` there and `loadSettings()` runs right after
+it. Settings persist in `localStorage` (`clockclock-settings`), wrapped in try/catch; every value
+goes through `accept(key, value)`, which validates it. URL options with the same names
+(`?path=spin&hand=ff8800&gap=8&clear`) override the saved ones. `applyLook()` writes face, hand,
+rim and gap to the `--face`/`--hand`/`--rim`/`--gap` variables (gap even, 0–24px). Fade: `busy(s)`
+(from `showTime()` and `goCrazy()`, extending, never shortening) removes `.rest` from `root` and
+sets it again when nothing moves any more; `.rest` makes the rims transparent (out 2s, in 0.6s). Changing a Crazy or Show
+option plays a show; any other select, the Duration slider or Preview animates to a random time
+and back; the Look controls apply while you pick.
 
 Path, Easing, Wave, Faces and Show have a `random` entry (`randomChoice()`, flagged `random: true`).
 Code reads the resolved values from `active` (never `settings.path` etc. directly); `pickActive()`
@@ -218,6 +231,36 @@ Notes from the reference setup (Pi 3B, Raspberry Pi OS trixie, labwc, 7" DSI tou
   `ENV{ID_INPUT_TOUCHSCREEN}=="1", ENV{LIBINPUT_CALIBRATION_MATRIX}="-1 0 1 0 -1 1"`.
 - Firefox is no alternative on a Pi 3: WebRender needs GL ES 3.0, the Pi 3 GPU has 2.0 (it would
   composite on the CPU). Chromium works with ES 2.0.
+
+## Lively (Windows desktop wallpaper)
+
+`wallpaper/` plus `clock.html` is a Lively Wallpaper web wallpaper package (`LivelyInfo.json`,
+`Type: 1`); everything is local, so the wrapper, its Customize panel and the clock are always the
+same version. `index.html` shows a background image and `clock.html` in an `<iframe>` with
+`?transparent&wallpaper` (no page background, no options click) plus every clock setting as a URL
+option; a change reloads the frame (debounced, Lively sends every setting at startup). Lively can't
+show the Windows wallpaper through a transparent page (it shows white), so the page draws the
+background. `?clock=../clock.html` on index.html runs it from the repo over a local server.
+
+Lively's web player drops localStorage on exit (tested, disk cache doesn't help), so in the
+wallpaper all settings live in `LivelyProperties.json` (Lively's Customize panel;
+`livelyPropertyListener(name, val)`; labels as section titles): background image from `images/`
+(`folderDropdown`; its file dialog copies pictures there), image URL (overrides it; debounced,
+falls back to the color and retries), color, corner, size (% of screen width), the two margins
+(px from the screen edge to the faces; the frame's height follows the clock's 8:3 shape plus
+clock.html's 24px padding), and a copy of every clock setting. **Every clock setting change must
+be mirrored here**: dropdowns send the item's index, so `CLOCK_CHOICES` in index.html lists the
+clock ids in the order of the items, and the items carry the clock's names.
+
+`lively-setup.ps1` (Windows PowerShell 5.1 and 7) downloads `main` (or `-Source <repo folder>`,
+`-Branch`), builds the package and finds Lively's library: classic `%LocalAppData%\Lively
+Wallpaper`, Store version under `Packages\*LivelyWallpaper*\LocalCache\Local\Lively Wallpaper`
+(Lively's own `WallpaperDir` in `Settings.json` is the unredirected path). Our wallpaper is the
+folder whose `LivelyInfo.json` has `Contact` = the repo URL. Not installed → it writes
+`gClockClock-lively.zip` to Downloads to drag onto Lively. Installed → it closes all `Lively*`
+processes, copies the package over (pictures in `images/` stay), merges the saved values in
+`SaveData\wpdata\<folder>\<screen>\LivelyProperties.json` into the new file (by key; dropdowns by
+item name; `.bak` kept) and starts Lively again (Store: `shell:AppsFolder\<family>!App`).
 
 ## Environment
 

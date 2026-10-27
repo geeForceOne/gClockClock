@@ -38,6 +38,8 @@
       top: round(down, calc((100vh - var(--s) * 3) / 2), 1px);
     }
   }
+  /* ?transparent: no page background, so a page embedding the clock shows through (wallpaper/) */
+  :root.transparent { --page: transparent; }
   html, body { margin: 0; height: 100%; }
   body {
     background: var(--page);
@@ -68,6 +70,7 @@
     border-radius: 50%;
     background: var(--face);
     border: 0.5px solid var(--rim);
+    transition: border-color 0.6s ease;
     /* hand thickness: 2px rect + 8px stroke on a 200px clock */
     --t: calc(var(--s) * 0.05);
   }
@@ -82,6 +85,8 @@
     transition: transform 8s cubic-bezier(0.3333, 0.6667, 0.6667, 1), opacity 2s ease;
     z-index: 1; /* reaching hands paint over the neighboring face */
   }
+  /* Fade rim: the rims fade out (slowly) while nothing moves and come back fast (busy()) */
+  .clock24.rest .face { border-color: transparent; transition-duration: 2s; }
   .face.blank .hand { opacity: 0; }
   /* Real face move: 12 hour lines round the rim */
   .face::before {
@@ -127,77 +132,130 @@
   .bloom .blossom { fill: #fffbe6; }
   .no-anim .hand { transition: none !important; }
 
-  /* options dialog: sits low on the screen so the clock stays visible for previews */
+  /* options dialog: three columns (time change, look, crazy) of label + control rows, every
+     control the same height; sits low on the screen so the clock stays visible for previews.
+     Its colors are its own, so the Look settings (face, hands) don't recolor it. */
   dialog {
-    background: #0d0d0d;
-    color: var(--text);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 12px 14px;
+    --panel: #111214;
+    --control: #1a1b1e;
+    --control-hover: #222428;
+    --edge: #2c2e33;
+    --ui-text: #c8cace;
+    --ui-muted: #7c7f86;
+    --ui-strong: #ffffff;
+    --row: 26px;
+    background: var(--panel);
+    color: var(--ui-text);
+    border: 1px solid var(--edge);
+    border-radius: 12px;
+    padding: 14px 4px;
     margin: auto auto 16px;
-    /* as small as the buttons allow */
     width: fit-content;
     max-width: calc(100vw - 16px);
     box-sizing: border-box;
     font-size: 12px;
   }
   dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
-  .options {
+  .panel { display: flex; }
+  .section {
     display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 6px 12px;
+    grid-template-columns: 62px 128px;
+    grid-auto-rows: var(--row);
+    gap: 6px 10px;
     align-items: center;
+    align-content: start;
+    padding: 0 16px;
   }
-  .options .label { color: var(--label); text-transform: uppercase; letter-spacing: 0.07em; font-size: 10px; }
-  .group { display: flex; flex-wrap: wrap; gap: 4px; }
-  .opt {
-    background: transparent;
-    color: var(--text);
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    padding: 3px 10px;
+  .section + .section { border-left: 1px solid var(--edge); }
+  .section h2 {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--ui-muted);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .section label, .section .name { color: var(--ui-text); }
+  .control { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  dialog select, dialog button {
+    height: var(--row);
+    background: var(--control);
+    color: var(--ui-strong);
+    border: 1px solid var(--edge);
+    border-radius: 6px;
     font: inherit;
     cursor: pointer;
   }
-  .opt:hover { border-color: var(--rim); }
-  .opt[aria-pressed="true"] { background: var(--hand); color: var(--page); border-color: var(--hand); }
-  .row-end { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .divider { grid-column: 1 / -1; width: 100%; border: none; border-top: 1px solid var(--line); margin: 2px 0; }
-  input[type="range"] { accent-color: var(--hand); width: 120px; height: 14px; margin: 0; }
-  @media (max-width: 600px) {
-    .options { grid-template-columns: 1fr; }
+  dialog select {
+    width: 100%;
+    appearance: none;
+    padding: 0 24px 0 8px;
+    /* chevron */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%237c7f86' stroke-width='1.5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+  }
+  dialog select option { background: var(--control); color: var(--ui-strong); }
+  dialog select:hover, dialog button:hover { background-color: var(--control-hover); }
+  dialog button { grid-column: 2; padding: 0 12px; }
+  dialog :focus-visible { outline: 1px solid var(--ui-strong); outline-offset: 1px; }
+  dialog input[type="range"] { flex: 1; min-width: 0; margin: 0; accent-color: var(--ui-strong); }
+  dialog output { width: 32px; text-align: right; color: var(--ui-muted); font-variant-numeric: tabular-nums; }
+  dialog input[type="color"] {
+    width: 40px;
+    height: var(--row);
+    padding: 3px;
+    background: var(--control);
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  dialog input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+  dialog input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 3px; }
+  dialog input[type="color"]:disabled { opacity: 0.35; cursor: default; }
+  dialog input[type="checkbox"] { margin: 0; accent-color: var(--ui-strong); }
+  .section .check { display: flex; align-items: center; gap: 6px; color: var(--ui-muted); cursor: pointer; }
+  /* small screens: one column per row of the grid instead of side by side */
+  @media (max-width: 700px) {
+    .panel { flex-direction: column; gap: 14px; }
+    .section + .section { border-left: 0; border-top: 1px solid var(--edge); padding-top: 14px; }
   }
 </style>
 </head>
 <body>
 <div class="clock24 no-anim" id="clock"></div>
 
-<dialog id="settings" aria-label="Animation">
-<div class="options" id="options">
-  <span class="label">Path</span>
-  <div class="group" data-key="path"></div>
-  <span class="label">Easing</span>
-  <div class="group" data-key="easing"></div>
-  <span class="label">Wave</span>
-  <div class="group" data-key="wave"></div>
-  <span class="label">Magnet</span>
-  <div class="group" data-key="magnet"></div>
-  <span class="label">Faces</span>
-  <div class="group" data-key="faces"></div>
-  <span class="label">Duration</span>
-  <div class="row-end">
-    <input type="range" id="duration" min="2" max="16" step="1">
-    <span id="durationValue"></span>
-    <button class="opt" id="preview" type="button">Preview</button>
+<dialog id="settings" aria-label="Options">
+<div class="panel">
+  <div class="section">
+    <h2>Time change</h2>
+    <label for="opt-path">Path</label><select id="opt-path" data-key="path"></select>
+    <label for="opt-easing">Easing</label><select id="opt-easing" data-key="easing"></select>
+    <label for="opt-wave">Wave</label><select id="opt-wave" data-key="wave"></select>
+    <label for="opt-magnet">Magnet</label><select id="opt-magnet" data-key="magnet"></select>
+    <label for="opt-faces">Faces</label><select id="opt-faces" data-key="faces"></select>
+    <label for="duration">Duration</label>
+    <span class="control"><input type="range" id="duration" min="2" max="16" step="1"><output id="durationValue" for="duration"></output></span>
+    <button id="preview" type="button">Preview</button>
   </div>
-  <hr class="divider">
-  <span class="label">Crazy</span>
-  <div class="row-end">
-    <div class="group" data-key="crazy"></div>
-    <button class="opt" id="goCrazy" type="button">Go crazy</button>
+  <div class="section">
+    <h2>Look</h2>
+    <label for="face">Face</label>
+    <span class="control"><input type="color" id="face"><label class="check"><input type="checkbox" id="clear">None</label></span>
+    <label for="hand">Hands</label>
+    <span class="control"><input type="color" id="hand"></span>
+    <label for="rim">Rim</label>
+    <span class="control"><input type="color" id="rim"><label class="check"><input type="checkbox" id="fade">Fade</label></span>
+    <label for="gap">Spacing</label>
+    <span class="control"><input type="range" id="gap" min="0" max="24" step="2"><output id="gapValue" for="gap"></output></span>
   </div>
-  <span class="label">Show</span>
-  <div class="group" data-key="show"></div>
+  <div class="section">
+    <h2>Crazy</h2>
+    <label for="opt-crazy">Often</label><select id="opt-crazy" data-key="crazy"></select>
+    <label for="opt-show">Show</label><select id="opt-show" data-key="show"></select>
+    <button id="goCrazy" type="button">Go crazy</button>
+  </div>
 </div>
 </dialog>
 
@@ -290,8 +348,11 @@
   const CHOICES = { path: PATHS, easing: EASINGS, wave: WAVES, magnet: MAGNETS, faces: FACES, crazy: CRAZY };
   // SHOWS (defined with the crazy shows below) joins CHOICES as 'show'.
 
+  // face/hand/rim: colors; clear: faces without fill; fade: rims fade out while nothing moves;
+  // gap: space between faces in px (even, see --gap)
   const settings = { path: 'original', easing: 'easeOut', wave: 'off', magnet: 'off', faces: 'off',
-    crazy: 'off', show: 'random', duration: 8 };
+    crazy: 'off', show: 'random', duration: 8, face: '#000000', clear: false, hand: '#ffffff',
+    rim: '#555555', fade: false, gap: 4 };
   const randomFrom = ids => ids[Math.floor(Math.random() * ids.length)];
   // What 'random' settings resolved to for the current time change.
   const active = {};
@@ -302,14 +363,41 @@
         : randomFrom(Object.keys(table).filter(id => !table[id].random && id !== 'off'));
     }
   }
-  // Called once CHOICES is complete (after SHOWS).
+  // Sets a setting if the value is valid for it (stored values and URL options alike; URL values
+  // arrive as strings). Returns whether it was taken.
+  function accept(key, value) {
+    let ok;
+    if (key in CHOICES) ok = Object.hasOwn(CHOICES[key], value);
+    else if (key === 'duration') { value = +value; ok = Number.isInteger(value) && value >= 2 && value <= 16; }
+    else if (key === 'gap') { value = +value; ok = Number.isInteger(value) && value >= 0 && value <= 24 && value % 2 === 0; }
+    else if (key === 'face' || key === 'hand' || key === 'rim') {
+      value = String(value).toLowerCase().replace(/^#?/, '#');
+      ok = /^#[0-9a-f]{6}$/.test(value);
+    } else if (key === 'clear' || key === 'fade') {
+      if (typeof value === 'string') value = value === '' || value === '1' || value === 'true';
+      ok = typeof value === 'boolean';
+    }
+    if (ok) settings[key] = value;
+    return ok;
+  }
+  // Called once CHOICES is complete (after SHOWS). Saved settings first, then URL options
+  // (?path=spin&hand=ff8800…) on top; the Lively wallpaper passes all of its settings that way.
   function loadSettings() {
     try {
       const stored = JSON.parse(localStorage.getItem('clockclock-settings')) || {};
-      for (const key of Object.keys(CHOICES)) if (stored[key] in CHOICES[key]) settings[key] = stored[key];
-      if (stored.duration >= 2 && stored.duration <= 16) settings.duration = stored.duration;
+      for (const key of Object.keys(settings)) if (key in stored) accept(key, stored[key]);
     } catch (e) {}
+    for (const [key, value] of new URLSearchParams(location.search)) if (key in settings) accept(key, value);
+    applyLook();
     pickActive();
+  }
+  // The Look settings are CSS variables on :root.
+  function applyLook() {
+    const css = document.documentElement.style;
+    css.setProperty('--face', settings.clear ? 'transparent' : settings.face);
+    css.setProperty('--hand', settings.hand);
+    css.setProperty('--rim', settings.rim);
+    css.setProperty('--gap', settings.gap + 'px');
   }
   const save = () => { try { localStorage.setItem('clockclock-settings', JSON.stringify(settings)); } catch (e) {} };
 
@@ -613,6 +701,18 @@
     }
     endScenes();
     linkHands();
+    busy(settings.duration + maxDelay() + 1); // landed, face moves done, magnet snapped
+  }
+
+  // Fade rim: something moves for the next `seconds`, so show the rims until then (or until
+  // something that started earlier is done, whichever is later).
+  let restTimer = 0;
+  let restAt = 0;
+  function busy(seconds) {
+    clearTimeout(restTimer);
+    root.classList.remove('rest');
+    restAt = Math.max(restAt, Date.now() + seconds * 1000);
+    if (settings.fade) restTimer = setTimeout(() => root.classList.add('rest'), restAt - Date.now());
   }
 
   // Remove what a running or finished scene left behind: the Bougainvillea layer, the saber duel.
@@ -1051,6 +1151,7 @@
     if (!SHOWS[id].keepLinks) retractHands();
     if (SHOWS[id].play) { // a scene; Billiard keeps the hands showing the time while the balls roll
       holdUntil = new Date(Date.now() + SHOWS[id].play(gen) * 1000);
+      busy((holdUntil - Date.now()) / 1000);
       return;
     }
     clocks.forEach(c => c.face.classList.remove('blank'));
@@ -1068,6 +1169,7 @@
       at += step.dur + Math.max(...delays);
     }
     holdUntil = new Date(Date.now() + at * 1000);
+    busy(at);
   }
 
   // Like Clock24.SetTime: show the current minute at startup, then switch to the
@@ -1110,43 +1212,70 @@
   }
 
   // ---- options UI ----
-  document.querySelectorAll('.group').forEach(group => {
-    const key = group.dataset.key;
-    for (const [id, choice] of Object.entries(CHOICES[key])) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'opt';
-      btn.textContent = choice.name;
-      btn.setAttribute('aria-pressed', settings[key] === id);
-      btn.addEventListener('click', () => {
-        settings[key] = id;
-        save();
-        group.querySelectorAll('.opt').forEach(b => b.setAttribute('aria-pressed', b === btn));
-        if ((key === 'crazy' && id !== 'off') || key === 'show') goCrazy();
-        else preview();
-      });
-      group.append(btn);
-    }
+  // One <select> per options table, options generated from it.
+  document.querySelectorAll('select[data-key]').forEach(select => {
+    const key = select.dataset.key;
+    for (const [id, choice] of Object.entries(CHOICES[key])) select.add(new Option(choice.name, id));
+    select.value = settings[key];
+    select.addEventListener('change', () => {
+      settings[key] = select.value;
+      save();
+      if ((key === 'crazy' && select.value !== 'off') || key === 'show') goCrazy();
+      else preview();
+    });
   });
 
-  const duration = document.getElementById('duration');
-  const durationValue = document.getElementById('durationValue');
-  duration.value = settings.duration;
-  durationValue.textContent = settings.duration + 's';
-  duration.addEventListener('input', () => {
-    settings.duration = +duration.value;
-    durationValue.textContent = settings.duration + 's';
+  // A range with its value shown next to it; preview plays when the slider is let go.
+  function slider(key, unit, onInput, onChange) {
+    const input = document.getElementById(key);
+    const value = document.getElementById(key + 'Value');
+    input.value = settings[key];
+    value.textContent = settings[key] + unit;
+    input.addEventListener('input', () => {
+      settings[key] = +input.value;
+      value.textContent = settings[key] + unit;
+      save();
+      onInput?.();
+    });
+    if (onChange) input.addEventListener('change', onChange);
+  }
+  slider('duration', 's', null, preview);
+  slider('gap', 'px', applyLook);
+
+  // Colors apply while picking.
+  const face = document.getElementById('face');
+  const clear = document.getElementById('clear');
+  const hand = document.getElementById('hand');
+  const rim = document.getElementById('rim');
+  const fade = document.getElementById('fade');
+  face.value = settings.face;
+  hand.value = settings.hand;
+  rim.value = settings.rim;
+  clear.checked = settings.clear;
+  face.disabled = settings.clear;
+  fade.checked = settings.fade;
+  face.addEventListener('input', () => { settings.face = face.value; applyLook(); save(); });
+  hand.addEventListener('input', () => { settings.hand = hand.value; applyLook(); save(); });
+  // while picking a rim color the rims show, then fade again
+  rim.addEventListener('input', () => { settings.rim = rim.value; applyLook(); save(); busy(2); });
+  fade.addEventListener('change', () => { settings.fade = fade.checked; save(); busy(1); });
+  clear.addEventListener('change', () => {
+    settings.clear = face.disabled = clear.checked;
+    applyLook();
     save();
   });
-  duration.addEventListener('change', preview);
+
   document.getElementById('preview').addEventListener('click', preview);
   document.getElementById('goCrazy').addEventListener('click', goCrazy);
 
   // Clicking the first clock opens the options; a click outside (or Esc) closes them.
+  // As a desktop wallpaper (?wallpaper) the settings come from Lively's Customize panel instead.
   const dialog = document.getElementById('settings');
-  const trigger = digits[0][0].face;
-  trigger.classList.add('settings-trigger');
-  trigger.addEventListener('click', () => dialog.showModal());
+  if (!new URLSearchParams(location.search).has('wallpaper')) {
+    const trigger = digits[0][0].face;
+    trigger.classList.add('settings-trigger');
+    trigger.addEventListener('click', () => dialog.showModal());
+  }
   // Clicking the last clock plays a crazy show.
   const crazyTrigger = digits[3][5].face;
   crazyTrigger.classList.add('settings-trigger');
@@ -1171,6 +1300,8 @@
   }));
 
   // ---- kiosk ----
+  if (new URLSearchParams(location.search).has('transparent')) document.documentElement.classList.add('transparent');
+
   // Hide the mouse cursor after 3s without movement.
   let idleTimer = 0;
   const wake = () => {

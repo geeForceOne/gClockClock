@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gClockClock wallpaper</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    background: #000000 center / cover no-repeat;
+  }
+  /* the clock page itself (transparent, so only its faces cover the background) */
+  iframe {
+    position: fixed;
+    border: 0;
+    background: transparent;
+  }
+</style>
+</head>
+<body>
+<iframe id="clock" title="gClockClock"></iframe>
+<script>
+  // A Lively Wallpaper web wallpaper: a background image with the clock in a corner.
+  // Lively builds its Customize panel from LivelyProperties.json and calls
+  // livelyPropertyListener(name, value) once per entry at load and again on every change.
+
+  // The clock ships in the package (lively-setup.ps1 copies clock.html next to this file), so
+  // the clock and these settings are always the same version. `?clock=<url>` overrides it when
+  // this page is opened in a browser for testing (e.g. ?clock=../clock.html from the repo).
+  const CLOCK_URL = new URLSearchParams(location.search).get('clock') || 'clock.html';
+  // clock.html keeps 24px of space on each side of the clock (its `100vw - 48px`)
+  const CLOCK_PAD = 24;
+  const IMAGE_FOLDER = 'images';
+  const CORNERS = ['bottom-right', 'bottom-left', 'top-right', 'top-left', 'center'];
+
+  // Clock settings: Lively dropdowns send the index of the picked item, so these lists hold the
+  // clock's option ids in the order of the items in LivelyProperties.json (= clock.html's tables).
+  const CLOCK_CHOICES = {
+    path: ['original', 'shortest', 'clockwise', 'opposite', 'spin', 'random'],
+    easing: ['easeOut', 'easeInOut', 'overshoot', 'linear', 'random'],
+    wave: ['off', 'leftRight', 'diagonal', 'digits', 'random'],
+    magnet: ['off', 'on'],
+    faces: ['off', 'pulse', 'flip', 'wobble', 'real', 'mix', 'random'],
+    crazy: ['off', 'minute', 'five', 'hour'],
+    show: ['rain', 'ripple', 'scissors', 'chaos', 'billiard', 'saber', 'bougainvillea', 'random'],
+  };
+  // Customize key → clock URL option, for settings passed through as they are
+  const CLOCK_VALUES = {
+    duration: 'duration', faceColor: 'face', clearFaces: 'clear', handColor: 'hand',
+    rimColor: 'rim', fadeRim: 'fade', gap: 'gap',
+  };
+
+  // same defaults as LivelyProperties.json, used when opened outside Lively
+  const props = {
+    image: 'default.svg',
+    imageUrl: '',
+    color: '#000000',
+    corner: 0,
+    size: 30,
+    marginX: 80,
+    marginY: 80,
+  };
+  const clock = {
+    path: 0, easing: 0, wave: 0, magnet: 0, faces: 0, crazy: 0, show: 7,
+    duration: 8, faceColor: '#000000', clearFaces: false, handColor: '#ffffff',
+    rimColor: '#555555', fadeRim: false, gap: 4,
+  };
+
+  const frame = document.getElementById('clock');
+
+  // The clock gets its settings as URL options, so a change reloads it. Lively sends every
+  // setting at startup, so wait until they have all arrived.
+  let clockTimer = 0;
+  function clockUrl() {
+    const options = new URLSearchParams();
+    options.set('transparent', '');
+    options.set('wallpaper', '');
+    for (const [key, ids] of Object.entries(CLOCK_CHOICES)) options.set(key, ids[clock[key]] ?? ids[0]);
+    for (const [key, option] of Object.entries(CLOCK_VALUES)) options.set(option, clock[key]);
+    return CLOCK_URL + (CLOCK_URL.includes('?') ? '&' : '?') + options;
+  }
+  function reloadClock() {
+    clearTimeout(clockTimer);
+    clockTimer = setTimeout(() => {
+      const url = clockUrl();
+      if (frame.getAttribute('src') !== url) frame.src = url;
+    }, 300);
+  }
+
+  // Clock size and position. The frame's height follows the clock's 8:3 shape, so the clock
+  // fills it, and the margins measure from the screen edge to the clock's faces.
+  function layout() {
+    const width = Math.round(innerWidth * props.size / 100);
+    const height = Math.round((width - 2 * CLOCK_PAD) * 3 / 8 + 2 * CLOCK_PAD);
+    const corner = CORNERS[props.corner] || CORNERS[0];
+    const s = frame.style;
+    s.width = width + 'px';
+    s.height = height + 'px';
+    s.left = s.right = s.top = s.bottom = '';
+    if (corner === 'center') {
+      s.left = Math.round((innerWidth - width) / 2) + 'px';
+      s.top = Math.round((innerHeight - height) / 2) + 'px';
+      return;
+    }
+    s[corner.endsWith('right') ? 'right' : 'left'] = (props.marginX - CLOCK_PAD) + 'px';
+    s[corner.startsWith('bottom') ? 'bottom' : 'top'] = (props.marginY - CLOCK_PAD) + 'px';
+  }
+  addEventListener('resize', layout);
+
+  // Background: the image URL if one is typed in, otherwise the image picked from the folder.
+  // Until an image has loaded (or when none is set) the background color shows.
+  let shownImage = null;
+  let retryTimer = 0;
+  function pickedImage() {
+    if (!props.image) return null;
+    const path = String(props.image).replace(/\\/g, '/');
+    return path.includes('/') ? path : IMAGE_FOLDER + '/' + path;
+  }
+  function background() {
+    clearTimeout(retryTimer);
+    const want = props.imageUrl.trim() || pickedImage();
+    if (!want) return setImage(null);
+    const img = new Image();
+    img.onload = () => { if (want === (props.imageUrl.trim() || pickedImage())) setImage(want); };
+    // offline or a typo: show the color and try again later (or when the network is back)
+    img.onerror = () => {
+      if (want !== (props.imageUrl.trim() || pickedImage())) return;
+      setImage(null);
+      retryTimer = setTimeout(background, 60 * 1000);
+    };
+    img.src = want;
+  }
+  function setImage(src) {
+    shownImage = src;
+    document.body.style.backgroundImage = src ? `url("${src.replace(/"/g, '%22')}")` : '';
+  }
+  addEventListener('online', () => { if (!shownImage) background(); });
+
+  // Lively sends the URL text box on every keypress, so wait until typing stops.
+  let urlTimer = 0;
+  function livelyPropertyListener(name, val) {
+    if (name in clock) {
+      clock[name] = typeof clock[name] === 'number' ? Number(val) : val;
+      reloadClock();
+      return;
+    }
+    switch (name) {
+      case 'image':
+        props.image = val;
+        background();
+        break;
+      case 'imageUrl':
+        props.imageUrl = val || '';
+        clearTimeout(urlTimer);
+        urlTimer = setTimeout(background, 800);
+        break;
+      case 'color':
+        props.color = val;
+        document.body.style.backgroundColor = val;
+        break;
+      case 'corner':
+      case 'size':
+      case 'marginX':
+      case 'marginY':
+        props[name] = Number(val);
+        layout();
+        break;
+    }
+  }
+
+  layout();
+  background();
+  reloadClock();
+</script>
+</body>
+</html>

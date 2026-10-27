@@ -1,0 +1,157 @@
+{
+  "backgroundTitle": {
+    "type": "label",
+    "text": "Background",
+    "value": "Background"
+  },
+  "image": {
+    "type": "folderDropdown",
+    "text": "Image",
+    "value": "default.svg",
+    "filter": "*.jpg|*.jpeg|*.png|*.webp|*.gif|*.svg",
+    "folder": "images"
+  },
+  "imageUrl": {
+    "type": "textbox",
+    "text": "Image URL (http/https, used instead of the image above)",
+    "value": ""
+  },
+  "color": {
+    "type": "color",
+    "text": "Color (shows where there is no image)",
+    "value": "#000000"
+  },
+  "placeTitle": {
+    "type": "label",
+    "text": "Clock position",
+    "value": "Clock position"
+  },
+  "corner": {
+    "type": "dropdown",
+    "text": "Position",
+    "value": 0,
+    "items": ["Bottom right", "Bottom left", "Top right", "Top left", "Center"]
+  },
+  "size": {
+    "type": "slider",
+    "text": "Width (% of screen)",
+    "value": 30,
+    "min": 10,
+    "max": 100,
+    "step": 1
+  },
+  "marginX": {
+    "type": "slider",
+    "text": "Distance from the side (px)",
+    "value": 80,
+    "min": 0,
+    "max": 1000,
+    "step": 10
+  },
+  "marginY": {
+    "type": "slider",
+    "text": "Distance from the top or bottom (px)",
+    "value": 80,
+    "min": 0,
+    "max": 1000,
+    "step": 10
+  },
+  "timeTitle": {
+    "type": "label",
+    "text": "Time change",
+    "value": "Time change"
+  },
+  "path": {
+    "type": "dropdown",
+    "text": "Path",
+    "value": 0,
+    "items": ["Original", "Shortest", "Clockwise", "Opposite", "Spin", "Random"]
+  },
+  "easing": {
+    "type": "dropdown",
+    "text": "Easing",
+    "value": 0,
+    "items": ["Ease out", "Smooth", "Overshoot", "Linear", "Random"]
+  },
+  "wave": {
+    "type": "dropdown",
+    "text": "Wave",
+    "value": 0,
+    "items": ["Off", "Left → right", "Diagonal", "Per digit", "Random"]
+  },
+  "magnet": {
+    "type": "dropdown",
+    "text": "Magnet",
+    "value": 0,
+    "items": ["Off", "On"]
+  },
+  "faces": {
+    "type": "dropdown",
+    "text": "Faces",
+    "value": 0,
+    "items": ["Off", "Pulse", "Flip", "Wobble", "Clock", "Mix", "Random"]
+  },
+  "duration": {
+    "type": "slider",
+    "text": "Duration (s)",
+    "value": 8,
+    "min": 2,
+    "max": 16,
+    "step": 1
+  },
+  "lookTitle": {
+    "type": "label",
+    "text": "Look",
+    "value": "Look"
+  },
+  "faceColor": {
+    "type": "color",
+    "text": "Face",
+    "value": "#000000"
+  },
+  "clearFaces": {
+    "type": "checkbox",
+    "text": "No face fill (only rims and hands)",
+    "value": false
+  },
+  "handColor": {
+    "type": "color",
+    "text": "Hands",
+    "value": "#ffffff"
+  },
+  "rimColor": {
+    "type": "color",
+    "text": "Rim",
+    "value": "#555555"
+  },
+  "fadeRim": {
+    "type": "checkbox",
+    "text": "Fade the rims while nothing moves",
+    "value": false
+  },
+  "gap": {
+    "type": "slider",
+    "text": "Spacing between clocks (px)",
+    "value": 4,
+    "min": 0,
+    "max": 24,
+    "step": 2
+  },
+  "crazyTitle": {
+    "type": "label",
+    "text": "Crazy",
+    "value": "Crazy"
+  },
+  "crazy": {
+    "type": "dropdown",
+    "text": "How often",
+    "value": 0,
+    "items": ["Off", "Every minute", "Every 5 min", "Every hour"]
+  },
+  "show": {
+    "type": "dropdown",
+    "text": "Show",
+    "value": 7,
+    "items": ["Rain", "Ripple", "Scissors", "Chaos", "Billiard", "Saber", "Bougainvillea", "Random"]
+  }
+}

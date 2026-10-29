@@ -146,7 +146,7 @@
     "type": "dropdown",
     "text": "How often",
     "value": 0,
-    "items": ["Off", "Every minute", "Every 5 min", "Every hour"]
+    "items": ["Off", "Every minute", "Every 10–20 min", "Every 40–60 min"]
   },
   "show": {
     "type": "dropdown",

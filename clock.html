@@ -346,13 +346,16 @@
     off: { name: 'Off' },
     on:  { name: 'On' },
   };
-  // How often a crazy show plays before the new time lands (every n minutes, 0 = never).
+  // How often a crazy show plays before the new time lands: after each show the next one comes a
+  // random number of minutes later, within `between` (not at fixed times like the full hour).
   const CRAZY = {
-    off:    { name: 'Off', every: 0 },
-    minute: { name: 'Every minute', every: 1 },
-    five:   { name: 'Every 5 min', every: 5 },
-    hour:   { name: 'Every hour', every: 60 },
+    off:    { name: 'Off' },
+    minute: { name: 'Every minute', between: [1, 1] },
+    some:   { name: 'Every 10–20 min', between: [10, 20] },
+    hourly: { name: 'Every 40–60 min', between: [40, 60] },
   };
+  // ids saved by older versions → their replacement
+  const RENAMED = { crazy: { five: 'some', hour: 'hourly' } };
   // How a clock face itself moves when its hands start turning to a new pose.
   // play(clock, delay) starts the move after delay seconds.
   const keyframeMove = (ms, keyframes) => (clock, delay) =>
@@ -396,6 +399,7 @@
   // arrive as strings). Returns whether it was taken.
   function accept(key, value) {
     let ok;
+    if (Object.hasOwn(RENAMED[key] ?? {}, value)) value = RENAMED[key][value];
     if (key in CHOICES) ok = Object.hasOwn(CHOICES[key], value);
     else if (key === 'duration') { value = +value; ok = Number.isInteger(value) && value >= 2 && value <= 16; }
     else if (key === 'gap') { value = +value; ok = Number.isInteger(value) && value >= 0 && value <= 24 && value % 2 === 0; }
@@ -1858,14 +1862,19 @@
   // A crazy show for the coming minute starts that much earlier again.
   let shown = null;
   let holdUntil = 0; // a preview or show is playing
+  // the next crazy show: the How often setting it was planned for and the minute it lands on (ms)
+  let crazyPlan = null;
+  const crazyGap = ([min, max]) => (min + Math.floor(Math.random() * (max - min + 1))) * 60000;
   function tick() {
     const now = new Date();
     if (now < holdUntil) return;
-    const every = CRAZY[settings.crazy].every;
+    const range = CRAZY[settings.crazy].between;
     const t = new Date(now);
     t.setSeconds(0, 0);
-    const nextMinute = (t.getMinutes() + 1) % 60;
-    const crazyNext = every > 0 && nextMinute % every === 0;
+    if (range && crazyPlan?.crazy !== settings.crazy) { // started, or How often changed
+      crazyPlan = { crazy: settings.crazy, at: t.getTime() + crazyGap(range) };
+    }
+    const crazyNext = !!range && t.getTime() + 60000 >= crazyPlan.at; // late (on hold): at the next minute
     const lead = Math.min(50, Math.ceil(settings.duration + maxDelay() + 2 + (crazyNext ? SHOW_SECONDS : 0)));
     let crazy = false;
     if (shown !== null && now.getSeconds() >= 60 - lead) {
@@ -1877,7 +1886,10 @@
       const isNew = hhmm !== shown; // not just landing after a preview or show
       holdUntil = 0;
       shown = hhmm;
-      if (crazy && isNew) goCrazy(); else showTime(hhmm);
+      if (crazy && isNew) {
+        goCrazy();
+        crazyPlan.at = t.getTime() + crazyGap(range);
+      } else showTime(hhmm);
     }
   }
 

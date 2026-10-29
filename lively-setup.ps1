@@ -120,6 +120,10 @@ try {
 
   # ---- update: package files, then the saved Customize values ----
   $newProps = [IO.File]::ReadAllText((Join-Path $package 'LivelyProperties.json'))
+  # dropdown items renamed since older versions: old name -> new name (en dash as a char code, so
+  # Windows PowerShell 5.1 reads this file right without a BOM)
+  $dash = [char]0x2013
+  $renamed = @{ 'Every 5 min' = "Every 10${dash}20 min"; 'Every hour' = "Every 40${dash}60 min" }
   foreach ($w in $installed) {
     Write-Host "Updating $($w.Folder)"
     Copy-Item (Join-Path $package '*') $w.Folder -Recurse -Force
@@ -142,7 +146,9 @@ try {
           'dropdown' {
             $items = @($v.items)
             if ($v.value -ge 0 -and $v.value -lt $items.Count) {
-              $i = [array]::IndexOf(@($n.items), $items[[int]$v.value])
+              $name = $items[[int]$v.value]
+              if ($renamed.ContainsKey($name)) { $name = $renamed[$name] }
+              $i = [array]::IndexOf(@($n.items), $name)
               if ($i -ge 0) { $n.value = $i }
             }
           }

@@ -229,7 +229,11 @@ show (blank faces included). Magnet links retract when a show starts, except for
 `keepLinks` (Bougainvillea: the hands keep showing the time). `endScenes()` (in `goCrazy()` and
 `showTime()`) removes what a scene left behind, separate from `retractHands()`. `holdUntil`
 pauses `tick()` for previews and shows; when it expires, `tick()` lands on the current time.
-The `crazy` setting plays a show before every 1/5/60th minute; `tick()` starts that minute's
+The `crazy` setting (How often) plays shows at random intervals, not at fixed times: `CRAZY` entries
+have `between: [min, max]` minutes; `crazyPlan` holds the minute the next show lands on, planned when
+the page starts or the setting changes and again after each show (a late one plays at the next
+minute). Old saved ids (`five`, `hour`) map to their replacements via `RENAMED` in `accept()`, and
+`lively-setup.ps1` maps the old Lively item names. `tick()` starts the show's minute
 switch `SHOW_SECONDS` earlier. Every show must fit in `SHOW_SECONDS`. `showGen` cancels a
 running show.
 

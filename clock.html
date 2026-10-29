@@ -799,12 +799,11 @@
     }
   }
 
-  // now: the hands are already in place (after Tron 2), so link them at once, Magnet on or off;
-  // the light walls stay until the next time change.
+  // now: the hands are already in place (after Tron 2 or Matrix), so link them at once.
   function linkHands(now = false) {
     retractHands();
     const gen = magnetGen;
-    if (settings.magnet !== 'on' && !now) return;
+    if (settings.magnet !== 'on') return;
     const wave = WAVES[active.wave].delay;
     for (const clock of digits.flat()) {
       for (const { hand, other, cls } of handLinks(clock)) {
@@ -1215,7 +1214,7 @@
   // ---- shows that build the time ----
   // Tron 2 and Matrix build the new time out of their effect and land on it without turning a hand:
   // settle() leaves every hand in its pose and sets landedOn, so showTime() for that time turns
-  // nothing (setPose(…, still)) and links the hands at once (linkHands(true)).
+  // nothing (setPose(…, still)) and, with Magnet on, links the hands at once (linkHands(true)).
   const SETTLE_SECONDS = 1.2; // the hands cool to white
   let landedOn = null;
 
@@ -1237,7 +1236,7 @@
     });
   }
 
-  // The hands cool to white and become the time: like a Magnet link where they join, the rest at
+  // The hands cool to white and become the time: with Magnet on, linked where they join, the rest at
   // full length; blank faces fade out.
   function settle(hhmm, poses) {
     const clocks = digits.flat();
@@ -1251,7 +1250,7 @@
         h.classList.remove('trail', 'code');
         if (!blank) h.classList.remove('tucked', 'reach'); // blank ones stay dots while they fade
       }
-      for (const { hand, cls } of handLinks(c)) hand.classList.add(cls);
+      if (settings.magnet === 'on') for (const { hand, cls } of handLinks(c)) hand.classList.add(cls);
     }
     landedOn = hhmm;
   }
@@ -1398,31 +1397,75 @@
   }
 
   // ---- matrix ----
-  // The Matrix crazy show: green code rain falls inside every face that is part of the new time
-  // (blank ones stay dark) and builds the hands: a face is a grid of glyph cells, and where a
-  // stream's head passes a cell on one of the clock's hands (in the new pose), that glyph may lock
-  // there, bright, while the rain goes on around it. When all of a clock's hand cells are locked
-  // they flash, the solid green hand fades in and the glyphs dissolve. Then the rain runs out and
-  // the hands cool to white as the time (settle()). The rain is one canvas over the clock (cheap on
-  // the Pi), redrawn once per MATRIX_TICK, clipped to the circles. The canvas is mirrored, so the
-  // glyphs are too, as in the film.
-  const MATRIX_GLYPHS = '0123456789ABCDEFHKMNPRTXZ$+-*/=<>:."|';
-  const MATRIX_COLUMNS = 7;          // glyph columns (and rows) per face; odd, so one runs through the center
-  const MATRIX_TICK = 0.07;          // seconds per glyph step
+  // The Matrix crazy show: green code rain falls inside every face and builds the hands of the new
+  // time: a face is a grid of small glyph cells, and where a stream's head passes a cell on one of
+  // the clock's hands (in the new pose), that glyph may lock there, bright, while the rain goes on
+  // around it. When all of a clock's hand cells are locked they flash, the solid green hand fades in
+  // and the glyphs dissolve. Blank faces only get rain. Then the rain runs out and the hands cool to
+  // white as the time (settle()). The rain is one canvas over the clock, drawn only in the cells
+  // inside the faces and never cleared: once per MATRIX_TICK it fades a little and each stream draws
+  // only its head and the cell it leaves (glyphs copied from prerendered strips), so the tails are
+  // long and cheap (the Pi). The canvas is mirrored, so the glyphs are too, as in the film.
+  // half-width katakana as in the film, with digits and a few symbols (the Pi has them in Droid Sans
+  // Fallback)
+  const MATRIX_GLYPHS = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789Z:."=*+-<>|';
+  const MATRIX_FONT = '"MS Gothic", "Yu Gothic", "Noto Sans Mono CJK JP", "Droid Sans Fallback", monospace';
+  const MATRIX_ROWS = 15;            // glyph rows (and columns) per face; odd, so one runs through the center
+  const MATRIX_MIN_PX = 9;           // smallest glyph row in px: small screens (the Pi's) get fewer rows
+  const MATRIX_TICK = 0.05;          // seconds per glyph step
+  const MATRIX_FADE = 0.08;          // share of its brightness every glyph loses per tick: the tails
+  const MATRIX_TAIL = 30;            // ticks until a tail has faded out (0.92^30 ≈ 0.08)
   const MATRIX_STOP = 5;             // no new streams after this
   // chance that a passing head locks a hand cell: none at first, certain by MATRIX_STOP - 0.7
   const matrixLock = t => Math.min(1, Math.max(0, (t - 0.8) / (MATRIX_STOP - 1.5)));
   let matrix = null;                 // { canvas, timer } while the show plays
+
+  // The grid of glyph cells for the current clock size; gw × gh is a cell.
+  function matrixGrid() {
+    const s = cellSize();
+    const most = Math.floor(s / MATRIX_MIN_PX);
+    const rows = Math.min(MATRIX_ROWS, most % 2 ? most : most - 1);
+    return { s, rows, cols: rows, gw: s / rows, gh: s / rows, dpr: devicePixelRatio || 1 };
+  }
+
+  // The glyphs are drawn once into sprite strips: plain green, the bright head and bold white for
+  // locked cells; copying them is much cheaper than fillText on the Pi. The strips are kept for the
+  // next show and first made while the page is idle after loading (below): the first use of the CJK
+  // fallback font froze the Pi for most of a second when it happened as the show started.
+  let matrixStrips = null;
+  function matrixSprites({ gw, gh, dpr }) {
+    const key = `${gw} ${gh} ${dpr}`;
+    if (matrixStrips?.key === key) return matrixStrips;
+    const sprite = (color, weight) => {
+      const w = Math.ceil(gw * dpr), h = Math.ceil(gh * dpr);
+      const strip = document.createElement('canvas');
+      strip.width = w * MATRIX_GLYPHS.length;
+      strip.height = h;
+      const sc = strip.getContext('2d');
+      sc.font = `${weight} ${Math.round(gh * dpr)}px ${MATRIX_FONT}`; // as tall as a row: the glyphs nearly touch
+      sc.textAlign = 'center';
+      sc.textBaseline = 'middle';
+      sc.fillStyle = color;
+      [...MATRIX_GLYPHS].forEach((ch, i) => sc.fillText(ch, (i + 0.5) * w, h / 2));
+      return { strip, w, h };
+    };
+    const green = getComputedStyle(document.documentElement).getPropertyValue('--matrix').trim();
+    return matrixStrips = {
+      key, GREEN: sprite(green, 'normal'), HEAD: sprite('#b8ffc8', 'normal'), LOCKED: sprite('#ffffff', 'bold'),
+    };
+  }
+  (window.requestIdleCallback ?? setTimeout)(() => matrixSprites(matrixGrid()));
 
   // Returns how long the show takes in seconds.
   function matrixRain(gen) {
     const later = (s, fn) => setTimeout(() => { if (gen === showGen) fn(); }, s * 1000);
     const hhmm = shown ?? '0000', poses = posesOf(hhmm);
     const clocks = digits.flat(), coded = clocks.filter(c => !isBlank(poses.get(c)));
-    const r = root.getBoundingClientRect(), s = cellSize(), g = s / MATRIX_COLUMNS;
+    const r = root.getBoundingClientRect();
+    const layout = matrixGrid(), { s, rows, cols, gw, gh, dpr } = layout;
+    const { GREEN, HEAD, LOCKED } = matrixSprites(layout);
     const canvas = document.createElement('canvas');
     canvas.className = 'matrix';
-    const dpr = devicePixelRatio || 1;
     canvas.width = Math.round(8 * s * dpr);
     canvas.height = Math.round(3 * s * dpr);
     Object.assign(canvas.style, { left: r.left + 'px', top: r.top + 'px', width: 8 * s + 'px', height: 3 * s + 'px' });
@@ -1430,31 +1473,39 @@
     const ctx = canvas.getContext('2d');
     // mirrored: x is drawn at 8s - x, which mirrors the glyphs and puts them back in place
     ctx.setTransform(-dpr, 0, 0, dpr, canvas.width, 0);
-    ctx.beginPath();
-    const radius = (s - settings.gap) / 2; // a face
-    for (const c of coded) {
-      ctx.moveTo(8 * s - (c.x + 0.5) * s + radius, (c.y + 0.5) * s);
-      ctx.arc(8 * s - (c.x + 0.5) * s, (c.y + 0.5) * s, radius, 0, 2 * Math.PI);
-    }
-    ctx.clip();
-    const plain = `${Math.round(g * 0.9)}px monospace`, bold = `bold ${Math.round(g * 0.95)}px monospace`;
-    ctx.font = plain;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
     const green = getComputedStyle(document.documentElement).getPropertyValue('--matrix').trim();
-    const glyph = () => MATRIX_GLYPHS[Math.floor(Math.random() * MATRIX_GLYPHS.length)];
+    const glyph = () => Math.floor(Math.random() * MATRIX_GLYPHS.length); // index into the strips
+    // draw a glyph over whatever faded glyph is still in its cell
+    const draw = (sp, i, x, y, alpha) => {
+      ctx.clearRect(x - gw / 2, y - gh / 2, gw, gh);
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(sp.strip, i * sp.w, 0, sp.w, sp.h, x - gw / 2, y - gh / 2, gw, gh);
+    };
 
-    const mid = (MATRIX_COLUMNS - 1) / 2;
-    const cellX = (c, col) => 8 * s - (c.x + (col + 0.5) / MATRIX_COLUMNS) * s; // mirrored
-    const cellY = (c, row) => (c.y + (row + 0.5) / MATRIX_COLUMNS) * s;
+    const midCol = (cols - 1) / 2, midRow = (rows - 1) / 2;
+    const cellX = (c, col) => 8 * s - (c.x + (col + 0.5) / cols) * s; // mirrored
+    const cellY = (c, row) => (c.y + (row + 0.5) / rows) * s;
+    // No clip path (slow): only cells whose glyph fits in the face get drawn. spans[col] = its first
+    // and last row inside (first > last: none).
+    const radius = (s - settings.gap) / 2;
+    const inside = (col, row) =>
+      Math.hypot(Math.abs(col - midCol) * gw + gw * 0.35, Math.abs(row - midRow) * gh + gh * 0.4) <= radius;
+    const spans = Array.from({ length: cols }, (_, col) => {
+      let top = 0;
+      while (top <= midRow && !inside(col, top)) top++;
+      return [top, rows - 1 - top];
+    });
 
-    // each clock: the cells its hands cover (center out to the rim along each hand), each null until
-    // a glyph locks there; left: how many are still empty; doneAt: when the last one locked
+    // each clock of the time: the cells its hands cover (center out to the rim along each hand), each
+    // null until a glyph locks there; left: how many are still empty; doneAt: when the last one locked
     const builds = new Map(coded.map(c => {
       const cells = new Map();
       for (const deg of poseAngles(poses.get(c))) {
         const [dx, dy] = DIRS[deg];
-        for (let k = 0; k <= mid; k++) cells.set(`${mid + dx * k},${mid + dy * k}`, null);
+        for (let k = 0; k <= (dx ? midCol : midRow); k++) {
+          const col = midCol + dx * k, row = midRow + dy * k;
+          if (inside(col, row)) cells.set(`${col},${row}`, null);
+        }
       }
       return [c, { cells, left: cells.size, doneAt: null }];
     }));
@@ -1471,47 +1522,47 @@
       if (--b.left === 0) built(c, b);
     };
 
-    // a stream: its clock and column, the row of its bright head (negative: still waiting above the
-    // face), its tail length and the glyphs it is passing
-    const streams = coded.flatMap(c => Array.from({ length: MATRIX_COLUMNS }, (_, col) => ({
-      c, col, x: cellX(c, col), head: -Math.floor(rand(0, 18)), len: 0, glyphs: [],
-    })));
-    const restart = st => {
-      st.len = 3 + Math.floor(Math.random() * 6);
-      st.glyphs = Array.from({ length: MATRIX_COLUMNS }, glyph);
-    };
-    streams.forEach(restart);
+    // a stream: its clock and column, the rows it runs over, the row of its bright head (above top:
+    // still waiting above the face), the head's glyph and how bright its tail is
+    const streams = clocks.flatMap(c => spans.flatMap(([top, bottom], col) => top > bottom ? [] : [{
+      c, col, x: cellX(c, col), top, bottom, head: top - Math.floor(rand(0, 2 * rows)), ch: 0, glow: rand(0.6, 1),
+    }]));
     let t = 0;
     const timer = setInterval(() => {
       t += MATRIX_TICK;
-      ctx.clearRect(0, 0, 8 * s, 3 * s);
+      // everything fades a little: the tails
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.globalAlpha = MATRIX_FADE;
+      ctx.fillRect(0, 0, 8 * s, 3 * s);
+      ctx.globalCompositeOperation = 'source-over';
       let falling = false;
       const chance = matrixLock(t);
       for (const st of streams) {
-        const b = builds.get(st.c);
+        const b = builds.get(st.c); // none on a blank face
+        if (st.head < st.top && t > MATRIX_STOP) continue; // the rain stops: no new streams
         st.head++;
-        if (st.head - st.len >= MATRIX_COLUMNS) { // ran out of the face: again, unless the rain stops
-          if (t > MATRIX_STOP) continue;
-          restart(st);
+        if (st.head > st.top && st.head <= st.bottom + 1) { // the cell it leaves
+          draw(GREEN, st.ch, st.x, cellY(st.c, st.head - 1), st.glow);
+        }
+        if (st.head > st.bottom && t <= MATRIX_STOP) { // ran out of the face: again
+          st.glow = rand(0.6, 1);
           // a column with empty hand cells comes back at once
-          const waiting = b.left && [...b.cells].some(([key, v]) => !v && key.startsWith(st.col + ','));
-          st.head = waiting ? 0 : -Math.floor(rand(0, 8));
+          const waiting = b?.left && [...b.cells].some(([key, v]) => !v && key.startsWith(st.col + ','));
+          st.head = waiting ? st.top : st.top - Math.floor(rand(0, rows));
         }
+        if (st.head > st.bottom + MATRIX_TAIL) continue; // gone, its tail too
         falling = true;
-        if (Math.random() < 0.15) st.glyphs[Math.floor(Math.random() * MATRIX_COLUMNS)] = glyph();
+        if (st.head < st.top || st.head > st.bottom) continue;
+        st.ch = glyph();
+        draw(HEAD, st.ch, st.x, cellY(st.c, st.head), 1);
         const key = `${st.col},${st.head}`;
-        if (b.cells.get(key) === null && Math.random() < chance) lockCell(st.c, b, key, st.glyphs[st.head]);
-        for (let row = Math.max(0, st.head - st.len + 1); row <= Math.min(st.head, MATRIX_COLUMNS - 1); row++) {
-          if (!b.doneAt && b.cells.get(`${st.col},${row}`)) continue; // a locked glyph is there
-          const head = row === st.head;
-          ctx.globalAlpha = head ? 1 : (row - st.head + st.len) / st.len;
-          ctx.fillStyle = head ? '#b8ffc8' : green;
-          ctx.fillText(st.glyphs[row], st.x, cellY(st.c, row));
-        }
+        if (b?.cells.get(key) === null && Math.random() < chance) lockCell(st.c, b, key, st.ch);
+        // now and then a glyph in the tail changes
+        const row = st.head - 2 - Math.floor(Math.random() * 8);
+        if (row >= st.top && Math.random() < 0.1) draw(GREEN, glyph(), st.x, cellY(st.c, row), 0.4 * st.glow);
       }
       // the locked glyphs: bright, now and then changing; when the clock is built they flash white
       // and dissolve over its solid hands
-      ctx.font = bold;
       for (const [c, b] of builds) {
         if (!b.doneAt && t > MATRIX_STOP - 0.4) { // safety net: finish it now
           for (const [key, v] of b.cells) if (!v) lockCell(c, b, key, glyph());
@@ -1523,15 +1574,15 @@
         for (const cell of b.cells.values()) {
           if (!cell) continue;
           if (Math.random() < 0.03) cell.ch = glyph();
+          ctx.clearRect(cell.x - gw / 2, cell.y - gh / 2, gw, gh);
           ctx.globalAlpha = fade * (flash ? 0.6 : 0.22); // a soft green block behind it: the hand's trace
           ctx.fillStyle = flash ? '#ffffff' : green;
-          ctx.fillRect(cell.x - g / 2, cell.y - g / 2, g, g);
+          ctx.fillRect(cell.x - gw / 2, cell.y - gh / 2, gw, gh);
           ctx.globalAlpha = fade;
-          ctx.fillStyle = '#ffffff';
-          ctx.fillText(cell.ch, cell.x, cell.y);
+          ctx.drawImage(LOCKED.strip, cell.ch * LOCKED.w, 0, LOCKED.w, LOCKED.h,
+            cell.x - gw / 2, cell.y - gh / 2, gw, gh);
         }
       }
-      ctx.font = plain;
       if (!falling) clearMatrix();
     }, MATRIX_TICK * 1000);
     matrix = { canvas, timer };
@@ -1541,11 +1592,11 @@
       c.face.classList.add('blank');
       for (const h of [c.hour, c.minute]) h.style.transition = 'opacity 0.5s ease, width 0.45s ease';
     }
-    coded.forEach(c => c.face.classList.add('coded'));
+    clocks.forEach(c => c.face.classList.add('coded'));
     later(0.55, () => clocks.forEach(c => poseNow(c, poses.get(c))));
     const cool = MATRIX_STOP + 0.3; // while the last streams run out
     later(cool, () => {
-      coded.forEach(c => c.face.classList.remove('coded'));
+      clocks.forEach(c => c.face.classList.remove('coded'));
       settle(hhmm, poses);
     });
     return cool + SETTLE_SECONDS;
@@ -1747,14 +1798,18 @@
       { angles: () => [randomDeg(), randomDeg()], dur: 2.5, delay: () => Math.random() * 0.8, path: 'clockwise' },
     ] },
     // Whole-screen scenes instead of steps: play(gen) starts one and returns its length in seconds.
-    billiard: { name: 'Billiard', play: () => { breakShot(); return BILLIARD_SECONDS; } },
-    saber: { name: 'Saber', play: saberDuel },
-    tron: { name: 'Tron', play: lightCycles },
-    tron2: { name: 'Tron 2', play: traceTime },
-    matrix: { name: 'Matrix', play: matrixRain },
+    // heavy: measured on a Raspberry Pi 3, the frame rate drops well below 50 fps (the step shows
+    // above stay smooth); Random (low power) skips these
+    billiard: { name: 'Billiard', play: () => { breakShot(); return BILLIARD_SECONDS; }, heavy: true },
+    saber: { name: 'Saber', play: saberDuel, heavy: true },
+    tron: { name: 'Tron', play: lightCycles, heavy: true },
+    tron2: { name: 'Tron 2', play: traceTime, heavy: true },
+    matrix: { name: 'Matrix', play: matrixRain, heavy: true },
     // keepLinks: the hands keep showing the time, so magnet links stay
-    bougainvillea: { name: 'Bougainvillea', play: () => { bougainvillea(); return BLOOM_SECONDS; }, keepLinks: true },
+    bougainvillea: { name: 'Bougainvillea', play: () => { bougainvillea(); return BLOOM_SECONDS; }, keepLinks: true, heavy: true },
     random: randomChoice(),
+    // lowPower: picks only shows without the heavy flag (too much for a Raspberry Pi 3)
+    randomLow: { ...randomChoice(), name: 'Random (low power)', lowPower: true },
   };
   CHOICES.show = SHOWS;
   loadSettings();
@@ -1770,8 +1825,9 @@
       c.face.classList.remove('dial');
       c.face.classList.toggle('blank', isBlank(c.pose));
     });
-    const id = settings.show !== 'random' ? settings.show
-      : randomFrom(Object.keys(SHOWS).filter(id => !SHOWS[id].random));
+    const pick = SHOWS[settings.show];
+    const id = !pick.random ? settings.show
+      : randomFrom(Object.keys(SHOWS).filter(id => !SHOWS[id].random && !(pick.lowPower && SHOWS[id].heavy)));
     endScenes();
     if (!SHOWS[id].keepLinks) retractHands();
     if (SHOWS[id].play) { // a scene; Billiard keeps the hands showing the time while the balls roll

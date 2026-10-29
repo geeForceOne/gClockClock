@@ -171,26 +171,32 @@ At the end `settle()` lands it (see Matrix).
 ## Matrix
 
 Matrix (`SHOWS.matrix`, `matrixRain(gen)`) also builds the time in `shown`. Green code rain falls
-in every face of the new time (blank ones stay dark): one `<canvas>` (`.matrix`, over the faces but
+in all 24 faces (blank ones only get rain): one `<canvas>` (`.matrix`, over the faces but
 under the hands, which have `z-index: 1`), mirrored with `setTransform` so the glyphs are mirrored
-as in the film, clipped to the face circles, redrawn once per `MATRIX_TICK` (no rAF; cheap on the
-Pi). A face is a grid of `MATRIX_COLUMNS` × `MATRIX_COLUMNS` glyph cells (odd, so a column and a
-row run through the center); one stream per column, each a bright head and a fading tail of
-`MATRIX_GLYPHS` (ASCII only: the Pi has no Japanese font). The rain builds the hands: `builds` holds
-each clock's hand cells (center out along each hand of the new pose); when a head passes an empty
+as in the film, updated once per `MATRIX_TICK` (no rAF). It is never cleared: each tick fades it by
+`MATRIX_FADE` (`destination-out`) and each stream draws only its head and the cell it leaves
+(`draw()` clears the cell first), so the long tails cost nothing extra. Kept cheap for the Pi
+(measured there: the rain went from 8–29 to 45–60 fps): glyphs are copied with `drawImage` from
+strips rendered once (`sprite()`; `fillText` per glyph was slow), and there is no clip path —
+`spans` limits each column to the rows whose glyph fits in the face, and `inside()` drops hand cells
+outside it. Animating the glow by an opacity layer (`::after`) was tried and was slower on the Pi.
+A face is a grid of `MATRIX_ROWS` × `MATRIX_ROWS` glyph cells (fewer on small screens, so a row is
+at least `MATRIX_MIN_PX`; odd, so a column and a row run through the center), the font as tall as a
+row so the glyphs in a column nearly touch; one stream per column, of `MATRIX_GLYPHS`: half-width
+katakana as in the film plus digits and symbols (`MATRIX_FONT`; the Pi has them in Droid Sans
+Fallback). The rain builds the hands: `builds` holds each clock's hand cells (center out along each hand of the new pose); when a head passes an empty
 one, its glyph locks there with chance `matrixLock(t)` (0 at first, 1 before `MATRIX_STOP`) and
 stays, bright, while the rain goes on; a column with empty cells restarts at once; a safety net
 locks the rest just before `MATRIX_STOP`. When a clock's cells are all locked they flash white and
 dissolve, and its solid hands fade in as `.hand.code`. All faces start `blank`, the hands turn to
-the new pose while hidden (`poseNow()`), the time's rims turn `--matrix-rim` (`.face.coded`).
+the new pose while hidden (`poseNow()`), all rims turn `--matrix-rim` (`.face.coded`).
 After `MATRIX_STOP` no stream restarts and `settle()` runs; `clearMatrix()` (from the timer when the rain is gone, or
 `endScenes()`) removes the canvas.
 
 Tron 2 and Matrix land on the time without turning a hand: `settle(hhmm, poses)` cools the hands to
-white (background/box-shadow transitions, `SETTLE_SECONDS`), gives them their Magnet link classes
-(`handLinks()`) and sets `landedOn`. `showTime()` for that time then turns nothing
-(`setPose(…, still)`) and `linkHands(true)` links at once, Magnet on or off, so the joined hands stay
-until the next time change. `endScenes()` clears `landedOn` (after `showTime()` has read it).
+white (background/box-shadow transitions, `SETTLE_SECONDS`), with Magnet on gives them their link
+classes (`handLinks()`; off: plain hands) and sets `landedOn`. `showTime()` for that time then turns
+nothing (`setPose(…, still)`) and `linkHands(true)` links at once if Magnet is on. `endScenes()` clears `landedOn` (after `showTime()` has read it).
 `posesOf(hhmm)` and `poseNow(clock, pose)` are the shared helpers.
 
 ## Bougainvillea
@@ -215,8 +221,10 @@ element count down for the Pi (about 1,300 SVG elements). At `BLOOM_FALL` each b
 `SHOWS` maps ids to `{ name, steps }` or, for a whole-screen scene, `{ name, play(gen) }`, where
 `play` starts the scene and returns its length in seconds (Billiard, Saber, Tron, Bougainvillea). `steps` is a list of
 `{ angles(clock), dur, delay(clock), path }` played in order by `goCrazy()` via `turnTo()` (which
-takes raw angles, unlike `setPose`). Random is the last entry in every options table.
-`goCrazy()` plays `settings.show` (Random picks any other entry). During a step show all hands
+takes raw angles, unlike `setPose`). Random is the last entry in every options table (in Show
+followed by Random (low power), `randomLow`).
+`goCrazy()` plays `settings.show` (Random picks any other entry; Random (low power) skips shows
+flagged `heavy`, the ones measured as too much for a Pi 3 — measure a new show on the Pi too). During a step show all hands
 show (blank faces included). Magnet links retract when a show starts, except for shows with
 `keepLinks` (Bougainvillea: the hands keep showing the time). `endScenes()` (in `goCrazy()` and
 `showTime()`) removes what a scene left behind, separate from `retractHands()`. `holdUntil`

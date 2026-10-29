@@ -237,6 +237,27 @@ minute). Old saved ids (`five`, `hour`) map to their replacements via `RENAMED` 
 switch `SHOW_SECONDS` earlier. Every show must fit in `SHOW_SECONDS`. `showGen` cancels a
 running show.
 
+## Easter eggs
+
+`EGGS` maps ids to `{ on(date), start?, stop? }`; `checkEgg()` (every tick) puts class `egg-<id>`
+on `<html>` while its day lasts and runs start/stop. `?<id>` turns one on any day (to try it).
+The looks are CSS (`.egg-<id> .hand:not(.trail, .code, .saber, .stick)`, so shows that restyle
+hands keep their look). Not in the README on purpose (surprises).
+- `muertos` (Nov 1–2): arm bones with knobbed joints (`--knobs`); a skeleton hand (`--skeleton`)
+  reaches back out of the center where a stroke ends (`.end`: both hands point the same way) and
+  at the tip of a hand pointing at nothing (not `.linked`). `markLinked()` sets both classes at
+  every `showTime()`; `retractHands()` clears them.
+- `may4` (May 4): hilt (`::before`) and glowing blade (`::after`); `lightSabers()` gives each face
+  a `--blade` color from `BLADES` via `dayRandom()` (same all day).
+- `christmas` (Dec 24–26): candy-cane hands, `.snow` flakes (CSS animations), snow lying in the
+  faces (`--pile`, rising during the day).
+- `valentine` (Feb 14): pink hands, a beating heart (`.face.blank::after`) in unused faces.
+- `newyear` (Dec 31): `tick()` keeps 23:59 until `countdown()` at 23:59:50: the middle digits count
+  10…1, then at 00:00 the hands spin into the time (`landedOn`) and `fireworks()` burst.
+  `?newyear` counts down at the end of every odd minute.
+- `aprilfools` (Apr 1): `aprilFool()` shows the hour off by one at a random minute of each hour
+  (`?aprilfools`: every even minute) and holds it ~10 s before `tick()` lands on the real time.
+
 ## Look
 
 Black page and faces, white hands, thin (0.5px) gray `#555` rim. Colors are CSS variables

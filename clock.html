@@ -321,6 +321,28 @@
   }
   dialog select option { background: var(--control); color: var(--ui-strong); }
   dialog select:hover, dialog button:hover { background-color: var(--control-hover); }
+  /* A list drawn in the page, where the browser supports it: unlike the native popup it stops at
+     the window edge and scrolls, so long lists stay usable on small screens. Others keep the popup. */
+  @supports (appearance: base-select) {
+    dialog select, dialog select::picker(select) { appearance: base-select; }
+    dialog select { white-space: nowrap; align-items: center; overflow: clip; overflow-clip-margin: content-box; } /* long names stop before the chevron */
+    dialog select::picker-icon { display: none; } /* the chevron above stays */
+    dialog select::picker(select) {
+      margin-block: 2px;
+      padding: 3px;
+      background: var(--control);
+      color: var(--ui-strong);
+      border: 1px solid var(--edge);
+      border-radius: 6px;
+      position-try-order: most-block-size; /* open on the side with the most room */
+      scrollbar-width: thin;
+      scrollbar-color: var(--ui-muted) transparent;
+    }
+    dialog select option { min-height: var(--row); padding: 0 8px; border-radius: 4px; white-space: nowrap; }
+    dialog select option::checkmark { display: none; }
+    dialog select option:checked { background: var(--edge); }
+    dialog select option:hover, dialog select option:focus-visible { background: var(--control-hover); }
+  }
   dialog button { grid-column: 2; padding: 0 12px; }
   dialog :focus-visible { outline: 1px solid var(--ui-strong); outline-offset: 1px; }
   dialog input[type="range"] { flex: 1; min-width: 0; margin: 0; accent-color: var(--ui-strong); }
@@ -2244,10 +2266,13 @@
   // Only close when the press also started outside, so dragging the slider out doesn't close it.
   let pressedOutside = false;
   const outside = e => {
+    if (e.target !== dialog) return false; // an open select list can stick out of the dialog
     const r = dialog.getBoundingClientRect();
     return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
   };
-  dialog.addEventListener('pointerdown', e => { pressedOutside = outside(e); });
+  // A press outside an open select list closes just the list.
+  const listOpen = () => CSS.supports('selector(select:open)') && dialog.querySelector('select:open');
+  dialog.addEventListener('pointerdown', e => { pressedOutside = outside(e) && !listOpen(); });
   dialog.addEventListener('click', e => { if (pressedOutside && outside(e)) dialog.close(); });
 
   // ---- start ----

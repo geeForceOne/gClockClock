@@ -71,7 +71,10 @@ don't recolor it. The selects are generated from the tables (`PATHS`, `EASINGS`,
 `MAGNETS`, `FACES`, `CRAZY`, `SHOWS`) via `CHOICES` per `select[data-key]`. To add an option, add
 an entry to the table — the UI picks it up (and mirror it in the Lively package, see Lively).
 `SHOWS` is defined further down, so it joins `CHOICES` there and `loadSettings()` runs right after
-it. Settings persist in `localStorage` (`clockclock-settings`), wrapped in try/catch; every value
+it. Where supported, the selects use `appearance: base-select`: the list is drawn in the page, stops
+at the window edge and scrolls (the native popup ran off the Pi's small screen); other browsers keep
+the popup. The list can stick out of the dialog, so the click-outside check also needs
+`e.target === dialog`. Settings persist in `localStorage` (`clockclock-settings`), wrapped in try/catch; every value
 goes through `accept(key, value)`, which validates it. URL options with the same names
 (`?path=spin&hand=ff8800&gap=8&clear`) override the saved ones. `applyLook()` writes face, hand,
 rim and gap to the `--face`/`--hand`/`--rim`/`--gap` variables (gap even, 0–24px). Fade: `busy(s)`

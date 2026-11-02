@@ -319,30 +319,29 @@
     background-repeat: no-repeat;
     background-position: right 8px center;
   }
-  dialog select option { background: var(--control); color: var(--ui-strong); }
   dialog select:hover, dialog button:hover { background-color: var(--control-hover); }
-  /* A list drawn in the page, where the browser supports it: unlike the native popup it stops at
-     the window edge and scrolls, so long lists stay usable on small screens. Others keep the popup. */
-  @supports (appearance: base-select) {
-    dialog select, dialog select::picker(select) { appearance: base-select; }
-    dialog select { white-space: nowrap; align-items: center; overflow: clip; overflow-clip-margin: content-box; } /* long names stop before the chevron */
-    dialog select::picker-icon { display: none; } /* the chevron above stays */
-    dialog select::picker(select) {
-      margin-block: 2px;
-      padding: 3px;
-      background: var(--control);
-      color: var(--ui-strong);
-      border: 1px solid var(--edge);
-      border-radius: 6px;
-      position-try-order: most-block-size; /* open on the side with the most room */
-      scrollbar-width: thin;
-      scrollbar-color: var(--ui-muted) transparent;
-    }
-    dialog select option { min-height: var(--row); padding: 0 8px; border-radius: 4px; white-space: nowrap; }
-    dialog select option::checkmark { display: none; }
-    dialog select option:checked { background: var(--edge); }
-    dialog select option:hover, dialog select option:focus-visible { background: var(--control-hover); }
+  /* Our own list for the selects (see openList()). The shade catches a press outside the list, so
+     it closes just the list. touch-action: none, because the script does the dragging itself. */
+  .list-shade { position: fixed; inset: 0; }
+  .list {
+    position: fixed;
+    box-sizing: border-box;
+    padding: 3px;
+    overflow-y: auto;
+    background: var(--control);
+    color: var(--ui-strong);
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    outline: none;
+    scrollbar-width: thin;
+    scrollbar-color: var(--ui-muted) transparent;
+    touch-action: none;
+    user-select: none;
+    cursor: pointer;
   }
+  .option { display: flex; align-items: center; min-height: var(--row); padding: 0 8px; border-radius: 4px; white-space: nowrap; }
+  @media (hover: hover) { .option:hover { background: var(--control-hover); } }
+  .option.current { background: var(--edge); }
   dialog button { grid-column: 2; padding: 0 12px; }
   dialog :focus-visible { outline: 1px solid var(--ui-strong); outline-offset: 1px; }
   dialog input[type="range"] { flex: 1; min-width: 0; margin: 0; accent-color: var(--ui-strong); }
@@ -402,6 +401,7 @@
     <button id="goCrazy" type="button">Go crazy</button>
   </div>
 </div>
+<div class="list-shade" id="listShade" hidden><div class="list" id="list" role="listbox" tabindex="-1"></div></div>
 </dialog>
 
 <script>
@@ -2195,11 +2195,118 @@
   }
 
   // ---- options UI ----
+  // The selects open our own list instead of the browser's: the native popup ran off the Pi's small
+  // screen, and base-select's list stayed on it but wouldn't scroll by touch there. The drag below
+  // doesn't rely on the browser's touch scrolling (it also works if touch arrives as a mouse).
+  const LIST_EDGE = 4; // px kept free to the window edge
+  const LIST_DRAG = 8; // px a press moves before it's a drag instead of a tap
+  const listShade = document.getElementById('listShade');
+  const list = document.getElementById('list');
+  let listSelect = null; // the select whose list is open
+  let listCurrent = null; // its highlighted entry
+  let listPress = null; // the press that may become a drag
+  let listDragged = false;
+
+  function markOption(item) {
+    listCurrent?.classList.remove('current');
+    listCurrent?.setAttribute('aria-selected', 'false');
+    listCurrent = item;
+    item.classList.add('current');
+    item.setAttribute('aria-selected', 'true');
+  }
+
+  // Below the select if it fits, otherwise on the side with the most room; scrolls beyond that.
+  function openList(select) {
+    listSelect = select;
+    list.replaceChildren(...Array.from(select.options, option => {
+      const item = document.createElement('div');
+      item.className = 'option';
+      item.setAttribute('role', 'option');
+      item.dataset.value = option.value;
+      item.textContent = option.text;
+      return item;
+    }));
+    listShade.hidden = false;
+    list.style.maxHeight = '';
+    const r = select.getBoundingClientRect();
+    const below = innerHeight - r.bottom - 2 - LIST_EDGE;
+    const above = r.top - 2 - LIST_EDGE;
+    const height = list.offsetHeight;
+    const down = height <= below || below >= above;
+    const shown = Math.min(height, down ? below : above);
+    list.style.maxHeight = shown + 'px';
+    list.style.minWidth = r.width + 'px';
+    list.style.top = (down ? r.bottom + 2 : r.top - 2 - shown) + 'px';
+    list.style.left = Math.max(LIST_EDGE, Math.min(r.left, innerWidth - list.offsetWidth - LIST_EDGE)) + 'px';
+    const current = list.children[select.selectedIndex];
+    markOption(current);
+    list.scrollTop = current.offsetTop - (list.clientHeight - current.offsetHeight) / 2;
+    list.focus({ preventScroll: true });
+  }
+
+  function closeList() {
+    listShade.hidden = true;
+    listSelect?.focus({ preventScroll: true });
+    listSelect = listCurrent = listPress = null;
+  }
+
+  function chooseOption(item) {
+    const select = listSelect;
+    closeList();
+    if (select.value === item.dataset.value) return;
+    select.value = item.dataset.value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  // Not on the scrollbar (there the target is the list itself): that one the browser handles.
+  list.addEventListener('pointerdown', e => {
+    listDragged = false;
+    listPress = e.target.closest('.option') && { id: e.pointerId, y: e.clientY, top: list.scrollTop };
+  });
+  list.addEventListener('pointermove', e => {
+    if (e.pointerId !== listPress?.id) return;
+    const moved = e.clientY - listPress.y;
+    if (!listDragged) {
+      if (Math.abs(moved) < LIST_DRAG) return;
+      listDragged = true;
+      list.setPointerCapture(e.pointerId);
+    }
+    list.scrollTop = listPress.top - moved;
+  });
+  list.addEventListener('pointerup', () => { listPress = null; });
+  list.addEventListener('pointercancel', () => { listPress = null; });
+  // On click, not on pointerup: closing earlier would let the tap's click hit the control below.
+  list.addEventListener('click', e => {
+    const item = e.target.closest('.option');
+    if (item && !listDragged) chooseOption(item);
+  });
+  listShade.addEventListener('click', e => { if (e.target === listShade) closeList(); });
+  list.addEventListener('keydown', e => {
+    const items = [...list.children];
+    const at = items.indexOf(listCurrent);
+    const to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[e.key];
+    if (e.key === 'Tab') return closeList(); // and Tab moves on from the select
+    if (to !== undefined) {
+      markOption(items[Math.max(0, Math.min(to, items.length - 1))]);
+      listCurrent.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter' || e.key === ' ') chooseOption(listCurrent);
+    else if (e.key === 'Escape') closeList(); // canceling the key keeps the dialog open
+    else return;
+    e.preventDefault();
+  });
+
   // One <select> per options table, options generated from it.
   document.querySelectorAll('select[data-key]').forEach(select => {
     const key = select.dataset.key;
     for (const [id, choice] of Object.entries(CHOICES[key])) select.add(new Option(choice.name, id));
     select.value = settings[key];
+    select.addEventListener('mousedown', e => e.preventDefault()); // no native popup
+    select.addEventListener('click', () => openList(select));
+    select.addEventListener('keydown', e => {
+      if (![' ', 'Enter', 'ArrowDown', 'ArrowUp', 'F4'].includes(e.key)) return;
+      e.preventDefault();
+      openList(select);
+    });
     select.addEventListener('change', () => {
       settings[key] = select.value;
       save();
@@ -2266,13 +2373,11 @@
   // Only close when the press also started outside, so dragging the slider out doesn't close it.
   let pressedOutside = false;
   const outside = e => {
-    if (e.target !== dialog) return false; // an open select list can stick out of the dialog
+    if (e.target !== dialog) return false; // an open select list and its shade reach outside the dialog
     const r = dialog.getBoundingClientRect();
     return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
   };
-  // A press outside an open select list closes just the list.
-  const listOpen = () => CSS.supports('selector(select:open)') && dialog.querySelector('select:open');
-  dialog.addEventListener('pointerdown', e => { pressedOutside = outside(e) && !listOpen(); });
+  dialog.addEventListener('pointerdown', e => { pressedOutside = outside(e); });
   dialog.addEventListener('click', e => { if (pressedOutside && outside(e)) dialog.close(); });
 
   // ---- start ----

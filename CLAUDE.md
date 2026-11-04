@@ -6,10 +6,19 @@ turn to form the time. Plain HTML/CSS/JS, no build, no dependencies.
 ## Files
 
 - `clock.html` — the whole app (markup, styles, script). Open it in a browser to run.
-- `kiosk-setup.sh` — sets up a Raspberry Pi to show the clock full screen (see Deploy).
+- `kiosk-setup.sh` — sets up a Raspberry Pi to show the clock full screen (see `docs/deploy.md`).
 - `wallpaper/` — Lively Wallpaper package: the clock in a corner of a background image (see Lively).
 - `lively-setup.ps1` — installs or updates that package in Lively (see Lively).
 - `README.md`, `LICENSE` (MIT, geeForceOne).
+
+## Read before changing
+
+These details are not loaded by default. Read the file first when a task touches its subject:
+
+- `docs/shows.md` — the scenes (Billiard, Saber, Tron, Tron 2, Matrix, Bougainvillea), `settle()`/`landedOn`,
+  and the easter eggs (`EGGS`). Read it for any change to a show, an egg, or how hands land after a show.
+- `docs/deploy.md` — GitHub Pages, self-update, `kiosk-setup.sh` and Pi notes (performance, rotation,
+  slimming). Read it for any change to the `kiosk` section of the script, the setup script, or the Pi.
 
 ## Workflow
 
@@ -110,116 +119,6 @@ turns them to `clock.pose` (last 40%), so it lands when a plain move would. Blan
 hands during it. Its `everyClock` flag makes `setPose()` play it on every clock, not only those
 whose pose changed. `clock.realGen` cancels a stale second half; `goCrazy()` bumps it on every clock.
 
-## Billiard
-
-Billiard is a crazy show (`SHOWS.billiard`, a scene with `play()`), not a face move. Its `play()`
-calls `breakShot()` and returns `BILLIARD_SECONDS`; the hands keep showing the time (blank faces stay
-blank) and the new time lands afterwards. `breakShot()` drives a rAF loop (`roll()`) through `PHASES`: shrink to `BALL` size (the balls stay black) → the 21 clocks outside the cue column glide into a 6-row triangle (`rack()`), the
-column's middle clock becomes the cue ball and the other two line up behind it → `aim`: those two
-turn their hour hand at the ball and minute hand straight back (one straight line through both
-faces; crazy-show steps skip clocks with `isStick`; `freezeHands()` first pins the hands at their
-on-screen angle, otherwise a hand whose stick angle equals its current target keeps its old slow
-transition and the stick looks bent) and stretch them (`.hand.stick`, `setStick()`) into a cue stick →
-pull back → strike → the hands return to their pose and everything rolls (physics: elastic ball collisions, window walls,
-friction) → glide home → grow. It writes the CSS `translate`/`scale` properties (separate from
-`transform`, so they combine with the other moves). Calling it again mid-scene restarts from
-the current positions.
-
-## Saber
-
-Saber is a scene too (`SHOWS.saber`, `saberDuel(gen)`): a hand-held sword duel between the middle
-clocks of digits 2 and 3 (`grid[1][2]` blue, `grid[1][5]` red). Their minute hand ignites into a
-blade (`.hand.saber`, 1.9 cells, white core with a `--glow` box-shadow from `--saber-a`/`--saber-b`);
-the hour hand is `tucked` as the hilt. The clock is the fighter: the blade swings around its center
-and the clock steps toward the other one and back (CSS `translate` with a transition). Every fight
-is new: `saberFight()` builds a list of beats from random moves (`strike` high or low, `thrust`,
-at most one `lock`, at most two `miss`es that cut a clock above or below the attacker) until
-`SABER_FIGHT`, then a random winner knocks the other blade up and cuts the loser. It tracks the
-steps itself so every clash spot is within `SABER_REACH` of both hilts (`spot()`). A beat is
-`{ t, d, blue, red, clash, cut }`; a move turns the blade to `deg` (local angles via `deg(i, a)`:
-0 points at the other fighter, negative is up) or points it `at` a spot (computed from the hilt
-after the step), `step` is cells toward the other fighter, `ease: 'strike'` for a hit. `clash`
-fires `spark()` (a fading `.spark` div) and a white flash when the beat ends; `cut: { victim, at,
-by, after }` calls `cut()` along fighter `by`'s blade. `cut()` makes two `clip-path` half-plane copies of the face that
-drift apart and fall while the face is hidden, then it grows back (an ungated timeout, so a
-cancelled show never leaves a face hidden). The other clocks point at each beat's action.
-Fighters get `dueling`, `z-index: 2` and a transparent face (so the other fighter's face doesn't
-hide a blade); `leaveDuel()` undoes that (and the hilt) and is called from `endScenes()`, as is the removal of
-`saber`/`clash`, so a cancelled duel leaves nothing behind.
-
-## Tron
-
-Tron is a scene (`SHOWS.tron`, `lightCycles(gen)`): two light cycles (`--tron-a` cyan from the left,
-`--tron-b` orange from the right, random rows) race over the clock centers, one cell per
-`TRON_STEP`, turning only at right angles. `raceCycles()` works out the whole race first (so the
-length is known): each step `steer()` picks a free cell straight on, left or right (weighted toward
-straight on and away from dead ends); a cycle with no free cell, or the loser of two that want the
-same cell, crashes (`crash`, `bump` = where it wanted to go); the winner rides on up to `TRON_LAP`
-cells (both crashing at once is a draw). The trail is the hands: all hands shrink to `tucked` dots
-and the rims become `--tron-grid`; the clock a cycle leaves turns its minute hand at the next cell
-(instantly) and grows it to `reach` with a linear width transition that keeps pace with the head;
-`.hand.trail` colors it from the face's `--trail`. The head is a `.cycle` div (CSS `translate`
-and `rotate`). A crash bumps the head forward and derezzes it into `.pixel` divs; each trail then
-flickers out back along its path (Web Animation with `fill: forwards`, cancelled in `onfinish` after
-the hand is a dot again). `clearTron()` (from `endScenes()`, only if `tronOn`) removes the heads,
-pixels, classes and animations.
-
-Tron 2 (`SHOWS.tron2`, `traceTime(gen)`) shares the look and `clearTron()`, but the cycles ride the
-strokes of the time in `shown`: a graph of the new poses (two clocks are joined where either points
-at the other), traversed breadth first from an end of each group (random), one stroke per
-`TRON2_STEP`; at a fork another head splits off, so every stroke is drawn once. The dots turn to
-the new pose while they are dots; a wall is the hand pointing along the stroke, revealed with an
-animated `clip-path` (from the pivot, or from the tip when only the far clock's hand points back).
-At the end `settle()` lands it (see Matrix).
-
-## Matrix
-
-Matrix (`SHOWS.matrix`, `matrixRain(gen)`) also builds the time in `shown`. Green code rain falls
-in all 24 faces (blank ones only get rain): one `<canvas>` (`.matrix`, over the faces but
-under the hands, which have `z-index: 1`), mirrored with `setTransform` so the glyphs are mirrored
-as in the film, updated once per `MATRIX_TICK` (no rAF). It is never cleared: each tick fades it by
-`MATRIX_FADE` (`destination-out`) and each stream draws only its head and the cell it leaves
-(`draw()` clears the cell first), so the long tails cost nothing extra. Kept cheap for the Pi
-(measured there: the rain went from 8–29 to 45–60 fps): glyphs are copied with `drawImage` from
-strips rendered once (`sprite()`; `fillText` per glyph was slow), and there is no clip path —
-`spans` limits each column to the rows whose glyph fits in the face, and `inside()` drops hand cells
-outside it. Animating the glow by an opacity layer (`::after`) was tried and was slower on the Pi.
-A face is a grid of `MATRIX_ROWS` × `MATRIX_ROWS` glyph cells (fewer on small screens, so a row is
-at least `MATRIX_MIN_PX`; odd, so a column and a row run through the center), the font as tall as a
-row so the glyphs in a column nearly touch; one stream per column, of `MATRIX_GLYPHS`: half-width
-katakana as in the film plus digits and symbols (`MATRIX_FONT`; the Pi has them in Droid Sans
-Fallback). The rain builds the hands: `builds` holds each clock's hand cells (center out along each hand of the new pose); when a head passes an empty
-one, its glyph locks there with chance `matrixLock(t)` (0 at first, 1 before `MATRIX_STOP`) and
-stays, bright, while the rain goes on; a column with empty cells restarts at once; a safety net
-locks the rest just before `MATRIX_STOP`. When a clock's cells are all locked they flash white and
-dissolve, and its solid hands fade in as `.hand.code`. All faces start `blank`, the hands turn to
-the new pose while hidden (`poseNow()`), all rims turn `--matrix-rim` (`.face.coded`).
-After `MATRIX_STOP` no stream restarts and `settle()` runs; `clearMatrix()` (from the timer when the rain is gone, or
-`endScenes()`) removes the canvas.
-
-Tron 2 and Matrix land on the time without turning a hand: `settle(hhmm, poses)` cools the hands to
-white (background/box-shadow transitions, `SETTLE_SECONDS`), with Magnet on gives them their link
-classes (`handLinks()`; off: plain hands) and sets `landedOn`. `showTime()` for that time then turns
-nothing (`setPose(…, still)`) and `linkHands(true)` links at once if Magnet is on. `endScenes()` clears `landedOn` (after `showTime()` has read it).
-`posesOf(hhmm)` and `poseNow(clock, pose)` are the shared helpers.
-
-## Bougainvillea
-
-Bougainvillea is a scene (`SHOWS.bougainvillea`, `bougainvillea()`, replaced the old Flower show).
-The hands keep showing the time (blank faces stay blank) while a plant grows on the digits in an SVG
-layer (`.bloom`, fixed over `root`, `viewBox="0 0 8 3"`, so every size is in cells; colors
-`--vine`/`--shoot`/`--leaf` and `BRACT_COLORS`). The digits become a graph: a node per non-blank
-clock (all digit poses are axis-aligned, read via `poseAngles()`/`DIRS`), a stroke where two
-clocks' hands point at each other, a stub where a hand points at nothing. Vines start below the
-bottom row of each digit and spread through the strokes at `BLOOM_SPEED` cells/s (arrival times by
-relaxing over the strokes); each stroke is two strands twining round the hands (`strand()`, sine
-offsets that cross at the clock centers), plus shoots round the rims (`tendril()`). `grow()` reveals
-a path with an animated `stroke-dashoffset` and adds leaves behind the tip and bract clusters (three
-`BRACT`s round a white `.blossom`) a little later; the second strand of a pair is `bare` to keep the
-element count down for the Pi (about 1,300 SVG elements). At `BLOOM_FALL` each bract falls and sways
-(CSS transforms in user units, `transform-box: fill-box`) and the plant fades; `clearBloom()`
-(called from `endScenes()`) removes the layer when the time lands or another show starts.
-
 ## Crazy shows
 
 `SHOWS` maps ids to `{ name, steps }` or, for a whole-screen scene, `{ name, play(gen) }`, where
@@ -241,27 +140,6 @@ minute). Old saved ids (`five`, `hour`) map to their replacements via `RENAMED` 
 switch `SHOW_SECONDS` earlier. Every show must fit in `SHOW_SECONDS`. `showGen` cancels a
 running show.
 
-## Easter eggs
-
-`EGGS` maps ids to `{ on(date), start?, stop? }`; `checkEgg()` (every tick) puts class `egg-<id>`
-on `<html>` while its day lasts and runs start/stop. `?<id>` turns one on any day (to try it).
-The looks are CSS (`.egg-<id> .hand:not(.trail, .code, .saber, .stick)`, so shows that restyle
-hands keep their look). Not in the README on purpose (surprises).
-- `muertos` (Nov 1–2): arm bones with knobbed joints (`--knobs`); a skeleton hand (`--skeleton`)
-  reaches back out of the center where a stroke ends (`.end`: both hands point the same way) and
-  at the tip of a hand pointing at nothing (not `.linked`). `markLinked()` sets both classes at
-  every `showTime()`; `retractHands()` clears them.
-- `may4` (May 4): hilt (`::before`) and glowing blade (`::after`); `lightSabers()` gives each face
-  a `--blade` color from `BLADES` via `dayRandom()` (same all day).
-- `christmas` (Dec 24–26): candy-cane hands, `.snow` flakes (CSS animations), snow lying in the
-  faces (`--pile`, rising during the day).
-- `valentine` (Feb 14): pink hands, a beating heart (`.face.blank::after`) in unused faces.
-- `newyear` (Dec 31): `tick()` keeps 23:59 until `countdown()` at 23:59:50: the middle digits count
-  10…1, then at 00:00 the hands spin into the time (`landedOn`) and `fireworks()` burst.
-  `?newyear` counts down at the end of every odd minute.
-- `aprilfools` (Apr 1): `aprilFool()` shows the hour off by one at a random minute of each hour
-  (`?aprilfools`: every even minute) and holds it ~10 s before `tick()` lands on the real time.
-
 ## Look
 
 Black page and faces, white hands, thin (0.5px) gray `#555` rim. Colors are CSS variables
@@ -271,59 +149,6 @@ keep it even so centers stay on whole pixels) smaller with half of it as margin.
 `--s` and hand thickness `--t` snap to even whole pixels and `.clock24` is positioned on a whole
 pixel, so joined hands from different clocks line up exactly (fractional sizes left visible
 notches at the joins).
-
-## Deploy (Raspberry Pi kiosk)
-
-Hosted on GitHub Pages: https://geeforceone.github.io/gClockClock/clock.html (public repo
-`geeForceOne/gClockClock`, Pages from `main`, root). A Raspberry Pi shows it full screen in
-Chromium kiosk mode. `kiosk-setup.sh` does the whole setup on a fresh Raspberry Pi OS (labwc):
-```
-curl -sLO https://raw.githubusercontent.com/geeForceOne/gClockClock/main/kiosk-setup.sh
-bash kiosk-setup.sh --upside-down   # options: --url URL, --upside-down, --no-sudo
-sudo reboot
-```
-Run as the normal user; it asks for the sudo password once and is safe to re-run (idempotent;
-`--no-sudo` does only the home-folder part and prints the rest, handy for testing over SSH).
-Home folder: `~/gclock-kiosk.sh` waits for the network, then runs
-`chromium --ozone-platform=wayland --kiosk` (without the Wayland flag Chromium tries X11 and fails
-when not started from the session); `~/.config/labwc/autostart` starts it via `lwrespawn`
-(restarts on exit); plus the performance and slimming items below. System (sudo): auto-login, no
-blanking, Bluetooth off, packagekit masked, and with `--upside-down` the rotation below
-(backups as `*.gclock-bak`).
-
-Updating = pushing to `main`: when served over http(s) the page fetches itself every 5 minutes
-and reloads when the text changed (GitHub Pages caches up to 10 minutes, so allow ~15). If a
-broken version stops the page itself, it can't reload; restarting Chromium fixes that after a fix
-is pushed. In the page, the `kiosk` section at the end of the script does the self-update
-(`checkUpdate()`, only over http(s)) and hides the cursor after 3s idle (`body.idle`). Don't use
-incognito in the kiosk, or the settings (localStorage) are lost on every start.
-
-Pi OS updates: `sudo apt update && sudo apt full-upgrade` (packagekit is masked, so nothing updates
-by itself); kiosk settings survive. For a new major release Raspberry Pi recommends a fresh install,
-then `kiosk-setup.sh` again.
-
-Notes from the reference setup (Pi 3B, Raspberry Pi OS trixie, labwc, 7" DSI touch display):
-- Performance: Raspberry Pi OS forces `WLR_RENDERER=pixman` (CPU compositing) on GPUs without MMU
-  (Pi 3 and older); labwc used ~50% CPU during animations. `WLR_RENDERER=gles2` in
-  `~/.config/labwc/environment` cut that to ~7% (`kiosk-setup.sh` adds it; labwc applies it after
-  start, so `/proc/<pid>/environ` still shows pixman). Chromium itself already uses the GPU
-  (`--use-angle=gles`, no `--disable-gpu-compositing`). Check `vcgencmd get_throttled` (0x0 =
-  fine): under-voltage throttles the Pi 3 to 600 MHz; with the 7" display it needs a good 2.5 A
-  supply.
-- Slimming: hide unused desktop autostarts with `Hidden=true` overrides in `~/.config/autostart`
-  (squeekboard, polkit agent, pprompt, pwrkey; keep autotouch), mask unused user services
-  (pipewire, wireplumber, filter-chain, mpris-proxy, gvfs phone/camera monitors); Chromium's cache
-  goes to `/dev/shm`. Bluetooth and packagekit can be disabled (sudo).
-- Display mounted upside down: rotate once, in labwc — kanshi `transform 180` in
-  `~/.config/kanshi/config`, so picture, pointer, popups and touch turn together. Don't rotate in
-  the driver as well (`panel_orientation=upside_down` in `cmdline.txt` rotates twice). The driver
-  rotation was tried first, for the boot logo, but it only turns the main picture layer: the
-  mouse pointer and Chromium's `<select>` popups (other hardware planes) showed upside down and
-  mirrored, and touch needed a udev flip. The boot logo can't be turned without it, so
-  `cmdline.txt` has no `quiet splash` (no logo) and `fbcon=rotate:2` turns the boot text;
-  `disable_splash=1` in `config.txt` hides the firmware rainbow.
-- Firefox is no alternative on a Pi 3: WebRender needs GL ES 3.0, the Pi 3 GPU has 2.0 (it would
-  composite on the CPU). Chromium works with ES 2.0.
 
 ## Lively (Windows desktop wallpaper)
 

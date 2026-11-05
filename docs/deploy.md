@@ -17,9 +17,9 @@ Run as the normal user; it asks for the sudo password once and is safe to re-run
 Home folder: `~/gclock-kiosk.sh` waits for the network, then runs
 `chromium --ozone-platform=wayland --kiosk` (without the Wayland flag Chromium tries X11 and fails
 when not started from the session); `~/.config/labwc/autostart` starts it via `lwrespawn`
-(restarts on exit); plus the performance and slimming items below. System (sudo): auto-login, no
-blanking, Bluetooth off, packagekit masked, and with `--upside-down` the rotation below
-(backups as `*.gclock-bak`).
+(restarts on exit); plus the performance and slimming items below. System (sudo): `wlrctl`,
+auto-login, no blanking, Bluetooth off, packagekit masked, and with `--upside-down` the rotation
+below (backups as `*.gclock-bak`).
 
 Updating = pushing to `main`: when served over http(s) the page fetches itself every 5 minutes
 and reloads when the text changed (GitHub Pages caches up to 10 minutes, so allow ~15). If a
@@ -52,6 +52,12 @@ Notes from the reference setup (Pi 3B, Raspberry Pi OS trixie, labwc, 7" DSI tou
   mirrored, and touch needed a udev flip. The boot logo can't be turned without it, so
   `cmdline.txt` has no `quiet splash` (no logo) and `fbcon=rotate:2` turns the boot text;
   `disable_splash=1` in `config.txt` hides the firmware rainbow.
+- Cursor after boot: labwc's arrow stayed at (100,100) over the running clock until the first
+  touch, because the page's `body.idle` didn't hide it before then. `~/gclock-kiosk.sh` therefore
+  moves the pointer 1px and back with `wlrctl` 30, 60 and 120s after the network check; a move
+  can't click anything, a real tap could hit the first or last clock. To check it, use `grim -c`
+  and look at the picture: plain `grim` doesn't show this cursor. The finished background loop
+  stays as one harmless `<defunct>` process, because Chromium doesn't reap it.
 - Firefox is no alternative on a Pi 3: WebRender needs GL ES 3.0, the Pi 3 GPU has 2.0 (it would
   composite on the CPU). Chromium works with ES 2.0.
 

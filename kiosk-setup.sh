@@ -11,8 +11,9 @@
 #
 # Without sudo (home folder): kiosk launcher + autostart, GPU renderer on Pi 3 and older,
 # unused desktop autostarts and user services off, Chromium cache in RAM.
-# With sudo (asks for your password once): desktop auto-login, no screen blanking,
-# Bluetooth and the background update check (packagekit) off, and --upside-down.
+# With sudo (asks for your password once): wlrctl (hides the pointer after boot), desktop
+# auto-login, no screen blanking, Bluetooth and the background update check (packagekit) off,
+# and --upside-down.
 set -e
 
 URL=https://geeforceone.github.io/gClockClock/clock.html
@@ -23,7 +24,7 @@ while [ $# -gt 0 ]; do
     --url) URL="$2"; shift ;;
     --upside-down) UPSIDE_DOWN=1 ;;
     --no-sudo) USE_SUDO=0 ;;
-    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1 (see --help)"; exit 1 ;;
   esac
   shift
@@ -47,6 +48,13 @@ for i in \$(seq 60); do
   curl -s -f -o /dev/null --max-time 3 "\$URL" && break
   sleep 1
 done
+# after a boot the cursor stays visible until the first pointer event, so nudge it 1px and back
+# once the page should be up (the page then hides it after 3s). A move can not click anything.
+( for wait in 30 30 60; do
+    sleep "\$wait"
+    wlrctl pointer move 1 0
+    wlrctl pointer move -1 0
+  done ) &
 # no incognito: the clock keeps its settings in the browser profile.
 # --ozone-platform=wayland: otherwise Chromium tries X11; cache in RAM spares the SD card.
 exec chromium --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --no-first-run \\
@@ -106,6 +114,7 @@ fi
 if [ $USE_SUDO = 0 ]; then
   echo
   echo "Skipped (--no-sudo). The system part would:"
+  echo "  - install wlrctl (without it the pointer stays visible after boot until the first touch)"
   echo "  - turn on desktop auto-login and turn off screen blanking (raspi-config)"
   echo "  - disable Bluetooth and mask packagekit"
   [ $UPSIDE_DOWN = 1 ] && echo "  - turn the boot text in /boot/firmware/cmdline.txt (fbcon=rotate:2, no logo)," &&
@@ -116,6 +125,9 @@ fi
 
 step "System settings (asks for your password)"
 sudo -v
+# Before packagekit is masked: apt's packagekit hook prints an error once it is. A failed install
+# only leaves the pointer visible after boot, so it doesn't stop the setup.
+sudo apt-get install -y wlrctl >/dev/null || echo "Could not install wlrctl: the pointer stays visible after boot until the first touch."
 sudo raspi-config nonint do_boot_behaviour B4   # boot to the desktop, logged in automatically
 sudo raspi-config nonint do_blanking 1          # never blank the screen
 sudo systemctl disable --now bluetooth >/dev/null 2>&1 || true

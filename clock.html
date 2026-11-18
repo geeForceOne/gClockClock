@@ -153,6 +153,8 @@
   .matrix { position: fixed; pointer-events: none; }
   .clock24 .face.coded { border-color: var(--matrix-rim); }
   .hand.code { background: var(--matrix); box-shadow: 0 0 calc(var(--t) * 1.5) calc(var(--t) * 0.3) var(--matrix); }
+  /* color plate show: a canvas of colored dots over the faces (under the hands) */
+  .plate { position: fixed; pointer-events: none; transition: opacity 1.5s ease; }
   /* bougainvillea show: an SVG layer over the clock in grid cells (viewBox 0 0 8 3) */
   .bloom { position: fixed; overflow: visible; pointer-events: none; z-index: 2; }
   .bloom .vine { fill: none; stroke: var(--vine); stroke-width: 0.03; stroke-linecap: round; }
@@ -878,6 +880,7 @@
     clearBloom();
     clearTron();
     clearMatrix();
+    clearPlate();
     for (const clock of digits.flat()) {
       if (clock.dueling) leaveDuel(clock);
       clock.hour.classList.remove('saber', 'clash');
@@ -1912,6 +1915,161 @@
     plant.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 1500, delay: (BLOOM_FALL + 1.5) * 1000, fill: 'forwards' });
   }
 
+  // ---- color plate ----
+  // The Color plate crazy show, after the plates of a color vision test: the hands fade out and every
+  // face fills up with small dots of different sizes in two colors of the same lightness, its own
+  // pair per face. The dots on the hands of the new time have the second color, so the time shows
+  // only to eyes that tell the two apart (both colors vary in brightness the same way, so brightness
+  // gives nothing away). Blank faces get background dots only. After a while to guess, the white
+  // hands fade in over the plate (settle()) and it fades away. One canvas over the faces, under the
+  // hands; each frame draws only the dots still growing, so there is little to draw at a time.
+  const PLATE_FILL = 4;          // seconds until the last dot is fully grown
+  const PLATE_GROW = 0.35;       // seconds a dot takes to grow
+  const PLATE_REVEAL = 8.5;      // the hands fade in
+  const PLATE_OUT = 1.2;         // after the reveal starts, the plate fades out (1.5s, .plate in CSS)
+  const PLATE_STRIPE = 0.17;     // half the width of a hand stripe, in face radii
+  const PLATE_SPACE = 0.012;     // space between dots, in face radii
+  const PLATE_LIGHT = 0.72;      // OKLCH lightness of both colors (same lightness: no brightness cue)
+  const PLATE_CHROMA = 0.11;
+  let plate = null;              // { canvas, frame } while the show plays
+
+  // Dots of different sizes packed into a unit circle at random ({ x, y, r } in face radii): darts
+  // that don't touch a dot already there stay, and they get smaller as the circle fills. A few
+  // packings are made once while the page is idle; each face uses one of them, turned and mirrored.
+  function packPlate() {
+    const dots = [], buckets = new Map(), CELL = 0.25, TRIES = 8000; // CELL ≥ two largest radii + space
+    const key = (i, j) => i * 16 + j;
+    const fits = (x, y, r) => {
+      const i = Math.floor((x + 1) / CELL), j = Math.floor((y + 1) / CELL);
+      for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+        for (const d of buckets.get(key(i + di, j + dj)) ?? []) {
+          if (Math.hypot(d.x - x, d.y - y) < d.r + r + PLATE_SPACE) return false;
+        }
+      }
+      return true;
+    };
+    for (let k = 0; k < TRIES; k++) {
+      const r = Math.max(0.025, rand(0.035, 0.085) * (1 - 0.6 * k / TRIES));
+      const a = rand(0, 2 * Math.PI), q = Math.sqrt(Math.random()) * (1 - r);
+      const x = q * Math.cos(a), y = q * Math.sin(a);
+      if (!fits(x, y, r)) continue;
+      const d = { x, y, r }, b = key(Math.floor((x + 1) / CELL), Math.floor((y + 1) / CELL));
+      dots.push(d);
+      if (!buckets.has(b)) buckets.set(b, []);
+      buckets.get(b).push(d);
+    }
+    return dots;
+  }
+  let platePackings = null;
+  (window.requestIdleCallback ?? setTimeout)(() => { platePackings ??= [packPlate(), packPlate(), packPlate()]; });
+
+  // OKLCH (lightness 0–1, chroma, hue in degrees) to a CSS rgb() color, with Björn Ottosson's OKLab
+  // matrices; channels outside sRGB are clipped.
+  function oklch(l, c, h) {
+    const a = c * cosd(h), b = c * sind(h);
+    const L = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+    const M = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+    const S = (l - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+    const srgb = x => {
+      x = Math.min(1, Math.max(0, x));
+      return Math.round(255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055));
+    };
+    return `rgb(${srgb(4.0767416621 * L - 3.3077115913 * M + 0.2309699292 * S)}, ` +
+      `${srgb(-1.2684380046 * L + 2.6097574011 * M - 0.3413193965 * S)}, ` +
+      `${srgb(-0.0041960863 * L - 0.7034186147 * M + 1.7076147010 * S)})`;
+  }
+
+  // Returns how long the show takes in seconds.
+  function colorPlate(gen) {
+    const later = (s, fn) => setTimeout(() => { if (gen === showGen) fn(); }, s * 1000);
+    const hhmm = shown ?? '0000', poses = posesOf(hhmm);
+    const clocks = digits.flat();
+    const s = cellSize(), dpr = devicePixelRatio || 1;
+    const R = (s - settings.gap) / 2 - 1; // a face's radius inside its rim
+    const r = root.getBoundingClientRect();
+    const canvas = document.createElement('canvas');
+    canvas.className = 'plate';
+    canvas.width = Math.round(8 * s * dpr);
+    canvas.height = Math.round(3 * s * dpr);
+    Object.assign(canvas.style, { left: r.left + 'px', top: r.top + 'px', width: 8 * s + 'px', height: 3 * s + 'px' });
+    document.body.append(canvas);
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    platePackings ??= [packPlate(), packPlate(), packPlate()];
+
+    // every face its own background hue (24 hues, 15° apart, shuffled); its hands' hue lies far round
+    // the color wheel from it
+    const hues = clocks.map((_, i) => i * 15);
+    for (let i = hues.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [hues[i], hues[j]] = [hues[j], hues[i]];
+    }
+    const dots = [];
+    clocks.forEach((c, i) => {
+      const ground = hues[i], figure = ground + rand(95, 135) * (Math.random() < 0.5 ? -1 : 1);
+      const pose = poses.get(c);
+      const hands = isBlank(pose) ? [] : poseAngles(pose).map(deg => [cosd(deg), sind(deg)]);
+      const turn = rand(0, 360), flip = Math.random() < 0.5 ? -1 : 1;
+      const cx = (c.x + 0.5) * s, cy = (c.y + 0.5) * s;
+      const start = c.x * 0.12; // the faces start filling in a wave from the left
+      for (const d of randomFrom(platePackings)) {
+        const x = (d.x * cosd(turn) - d.y * sind(turn)) * flip, y = d.x * sind(turn) + d.y * cosd(turn);
+        // on a hand: closer than PLATE_STRIPE to the line from the center out toward the rim
+        const onHand = hands.some(([hx, hy]) => {
+          const along = Math.min(0.95, Math.max(0, x * hx + y * hy));
+          return Math.hypot(x - along * hx, y - along * hy) < PLATE_STRIPE;
+        });
+        dots.push({
+          x: cx + x * R, y: cy + y * R, r: d.r * R,
+          color: oklch(PLATE_LIGHT + randomFrom([-0.1, -0.05, 0, 0.04]), PLATE_CHROMA * rand(0.8, 1.2),
+            (onHand ? figure : ground) + rand(-8, 8)),
+          at: start + Math.random() * (PLATE_FILL - 7 * 0.12 - PLATE_GROW),
+        });
+      }
+    });
+    dots.sort((a, b) => a.at - b.at);
+
+    // the dots grow in, each frame drawing only those still growing (a bigger circle over the last)
+    const t0 = performance.now() + 400; // the hands have faded out by then
+    let next = 0, growing = [];
+    const frame = now => {
+      if (!plate) return;
+      const t = (now - t0) / 1000;
+      while (next < dots.length && dots[next].at <= t) growing.push(dots[next++]);
+      growing = growing.filter(d => {
+        const k = Math.min(1, (t - d.at) / PLATE_GROW);
+        ctx.fillStyle = d.color;
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, d.r * (1 - (1 - k) ** 3), 0, 2 * Math.PI);
+        ctx.fill();
+        return k < 1;
+      });
+      if (next < dots.length || growing.length) plate.frame = requestAnimationFrame(frame);
+    };
+    plate = { canvas, frame: requestAnimationFrame(frame) };
+
+    // the hands fade out and turn to the new pose while hidden; after the guessing time they fade in,
+    // white, as the time, and the plate fades away
+    for (const c of clocks) {
+      c.face.classList.add('blank');
+      for (const h of [c.hour, c.minute]) h.style.transition = 'opacity 0.4s ease, width 0.45s ease';
+    }
+    later(0.45, () => clocks.forEach(c => poseNow(c, poses.get(c))));
+    later(PLATE_REVEAL, () => settle(hhmm, poses));
+    later(PLATE_REVEAL + PLATE_OUT, () => { canvas.style.opacity = 0; });
+    const end = PLATE_REVEAL + PLATE_OUT + 1.5;
+    later(end, clearPlate);
+    return end;
+  }
+
+  // Remove the plate (end of the show, or a cancelled one).
+  function clearPlate() {
+    if (!plate) return;
+    cancelAnimationFrame(plate.frame);
+    plate.canvas.remove();
+    plate = null;
+  }
+
   const SHOWS = {
     rain: { name: 'Rain', steps: [
       { angles: () => [45, 225], dur: 3, delay: c => c.x * 0.1, path: 'shortest' },
@@ -1942,6 +2100,8 @@
     matrix: { name: 'Matrix', play: matrixRain, heavy: true },
     // keepLinks: the hands keep showing the time, so magnet links stay
     bougainvillea: { name: 'Bougainvillea', play: () => { bougainvillea(); return BLOOM_SECONDS; }, keepLinks: true, heavy: true },
+    // heavy without a Pi measurement: thousands of growing dots, kept out of Random (low power)
+    plate: { name: 'Color plate', play: colorPlate, heavy: true },
     random: randomChoice(),
     // lowPower: picks only shows without the heavy flag (too much for a Raspberry Pi 3)
     randomLow: { ...randomChoice(), name: 'Random (low power)', lowPower: true },

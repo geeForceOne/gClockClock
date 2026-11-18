@@ -112,6 +112,22 @@ element count down for the Pi (about 1,300 SVG elements). At `BLOOM_FALL` each b
 (CSS transforms in user units, `transform-box: fill-box`) and the plant fades; `clearBloom()`
 (called from `endScenes()`) removes the layer when the time lands or another show starts.
 
+## Color plate
+
+Color plate (`SHOWS.plate`, `colorPlate(gen)`) is like a color vision test plate and builds the time
+in `shown`. All faces turn `blank` and the hands turn to the new pose while hidden (`poseNow()`);
+one `<canvas>` (`.plate`, under the hands) fills every face with dots that grow in, the faces
+starting in a wave from the left, all done by `PLATE_FILL`. The dots come from `platePackings`:
+three random packings of a unit circle (`packPlate()`: dart throwing with a bucket grid, radii
+shrinking as it fills), made while the page is idle; each face uses one, turned and maybe mirrored.
+Each face has its own background hue (24 hues 15° apart, shuffled) and a hand hue 95–135° away; dots
+within `PLATE_STRIPE` of a hand of the new pose take the hand hue (blank faces get none). Both hues
+have the same OKLCH lightness (`PLATE_LIGHT`, converted to sRGB by `oklch()`, not by the browser)
+and every dot gets the same random lightness steps, so brightness doesn't give the time away. Each
+frame draws only the dots still growing (a bigger circle over the last). At `PLATE_REVEAL`
+`settle()` fades the white hands in over the plate, then the canvas fades out; `clearPlate()` (from
+`endScenes()`) removes it. Flagged `heavy` without a Pi measurement.
+
 ## Easter eggs
 
 `EGGS` maps ids to `{ on(date), start?, stop? }`; `checkEgg()` (every tick) puts class `egg-<id>`

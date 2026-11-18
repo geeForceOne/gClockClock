@@ -1,6 +1,6 @@
 # Crazy show scenes and easter eggs
 
-Details split off from `CLAUDE.md`; the general rules for shows are under "Crazy shows" there.
+Details split off from `CLAUDE.md`; the general rules for shows are under "Crazy shows" in `docs/internals.md`.
 
 ## Billiard
 

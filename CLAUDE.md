@@ -35,7 +35,8 @@ These are not loaded by default. Read the matching file first:
 ## Rules
 
 - Options come from the tables (`PATHS`, `EASINGS`, `WAVES`, `MAGNETS`, `FACES`, `CRAZY`, `SHOWS`).
-  To add an option, add a table entry; Random stays last.
+  To add an option, add a table entry before the Random entries (Path, Easing, Wave, Faces end with
+  Random; Show ends with Random, then Random (low power)).
 - Mirror every clock setting change in the Lively package: `wallpaper/LivelyProperties.json` and
   the `CLOCK_CHOICES` order in `wallpaper/index.html` (dropdowns send indexes).
 - Read resolved values from `active`, never `settings.x`. Every value goes through

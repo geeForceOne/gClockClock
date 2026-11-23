@@ -38,9 +38,11 @@ The clock as a card on a [Home Assistant](https://www.home-assistant.io/) dashbo
 
 ### Install
 
-1. Open **Settings → Marketplace** and add `https://github.com/geeForceOne/gClockClock` as a
-   custom repository with the type **Dashboard**. Adding a custom repository needs a GitHub account
-   connected in the Marketplace.
+[![Open your Home Assistant instance and open gClockClock in the Marketplace.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=geeForceOne&repository=gClockClock&category=plugin)
+
+1. Click the button above, or open **Settings → Marketplace** and add
+   `https://github.com/geeForceOne/gClockClock` as a custom repository with the type **Dashboard**.
+   Adding a custom repository needs a GitHub account connected in the Marketplace.
 2. Find **gClockClock** in the Marketplace and download it. Reload the browser when it asks.
 3. Edit a dashboard → **Add card** → **gClockClock**.
 

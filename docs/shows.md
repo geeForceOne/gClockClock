@@ -128,6 +128,24 @@ frame draws only the dots still growing (a bigger circle over the last). At `PLA
 `settle()` fades the white hands in over the plate, then the canvas fades out; `clearPlate()` (from
 `endScenes()`) removes it. Flagged `heavy` without a Pi measurement.
 
+## Home
+
+Home (`SHOWS.home`, `home(gen)`) is a nod to Home Assistant, after the house and tree of its logo
+(geometry from the Material Design `home-assistant` icon; the README says gClockClock isn't
+affiliated). It builds the time in `shown`. Every face turns into a blue house (`--home`) in a wave
+from the left (`HOME_WAVE`): an inline `clip-path` morphs between two polygons with the same number
+of corners (`homeClip`: the house's real corners plus points along its edges, `HOME_HOUSE`, and a
+circle point at each one's angle), and the face's `border-radius` goes to 0 so the round corners
+don't cut the house. The hands, shrunk to a dot, fall to the floor and bounce (a Web Animation on
+`translate`, which moves the pivot), the trunk (`.tree::before`) grows up into the top dot and carries the dot
+along: the left branch (hour hand) stays at the lower fork, the right one (minute hand) rides on to
+the upper one, and each grows out (inline width, `HOME_TREE`'s angles) into its filled dot
+(`.tree::after`, radial gradients; positions match `HOME_TREE`). Then the trunk and dots fade, the pivots slide back to the center and the hands turn to the actual time at
+house-clock length (`HOME_CLOCK`); after a short hold the houses morph back into circles and the
+hands swing into the new pose at full length (blank faces fade out); `settle()` lands it.
+`clearHome()` (from `endScenes()`) removes the trees and the inline styles. Flagged `heavy` until
+measured on the Pi.
+
 ## Easter eggs
 
 `EGGS` maps ids to `{ on(date), start?, stop? }`; `checkEgg()` (every tick) puts class `egg-<id>`

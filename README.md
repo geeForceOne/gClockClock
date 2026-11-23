@@ -65,6 +65,8 @@ transparent: true
 
 HACS shows an update when there is a new version.
 
+gClockClock is not affiliated with or endorsed by Home Assistant or the Open Home Foundation.
+
 ## Windows desktop wallpaper (Lively)
 
 The clock can sit in a corner of your desktop background, using the free app

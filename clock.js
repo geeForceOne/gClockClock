@@ -27,6 +27,8 @@ const CSS = String.raw`
     --vine: #6b4f2a;
     --shoot: #5f7f2c;
     --leaf: #3f7d2c;
+    /* home show: the houses the faces turn into (Home Assistant's light blue) */
+    --home: #41bdf5;
     /* clock size: 8 clocks across, 3 down, fit the stage (100cq*: the stage, a size container) */
     --pad: 24px;
     --s: min(calc((100cqw - 2 * var(--pad)) / 8), calc((100cqh - 2 * var(--pad)) / 3));
@@ -164,6 +166,35 @@ const CSS = String.raw`
   .bloom .tendril { fill: none; stroke: var(--shoot); stroke-width: 0.016; stroke-linecap: round; }
   .bloom .leaf { fill: var(--leaf); }
   .bloom .blossom { fill: #fffbe6; }
+  /* home show: each face turns into a house (clip-path, set by the script) with a tree in it, in %
+     of the face (HOME_TREE): the trunk (::before) grows up from the floor into the top dot, the dots
+     (::after) sit at the top and at the tips of the branches, which are the hands */
+  .tree { position: absolute; inset: 0; pointer-events: none; transition: opacity 0.6s ease; }
+  .tree::before, .tree::after { content: ''; position: absolute; }
+  .tree::before {
+    left: calc(50% - var(--t) / 2);
+    top: 33%;
+    width: var(--t);
+    height: 55%;
+    background: var(--hand);
+    transform: scaleY(0);
+    transform-origin: bottom;
+    transition: transform 0.8s ease-out;
+  }
+  .tree::after {
+    inset: 0;
+    background: radial-gradient(circle calc(var(--s) * 0.08) at 50% 32.5%, var(--hand) 92%, transparent);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .tree.trunk::before { transform: scaleY(1); }
+  .tree.top::after { opacity: 1; }
+  .tree.top.rings::after {
+    background:
+      radial-gradient(circle calc(var(--s) * 0.08) at 50% 32.5%, var(--hand) 92%, transparent),
+      radial-gradient(circle calc(var(--s) * 0.08) at 31.25% 58.25%, var(--hand) 92%, transparent),
+      radial-gradient(circle calc(var(--s) * 0.08) at 68.75% 48.25%, var(--hand) 92%, transparent);
+  }
   .no-anim .hand { transition: none !important; }
 
   /* ---- easter eggs: class egg-<id> on the stage on their days (EGGS in the script) ---- */
@@ -767,6 +798,7 @@ function gClockClock(stage, options = {}) {
     clearTron();
     clearMatrix();
     clearPlate();
+    clearHome();
     for (const clock of digits.flat()) {
       if (clock.dueling) leaveDuel(clock);
       clock.hour.classList.remove('saber', 'clash');
@@ -1956,6 +1988,127 @@ function gClockClock(stage, options = {}) {
     plate = null;
   }
 
+  // ---- home ----
+  // The Home crazy show, a nod to Home Assistant (after the house and tree of its logo): every face
+  // turns into a blue house, the hands (a dot by now) fall to its floor, the trunk grows up and
+  // carries the dot to where the two branches leave it, the branches (the hands) grow out to their
+  // rings. Then the trunk and rings fade and the branches slide back to the center as the hands of
+  // a real clock showing the actual time; the houses turn back into faces and the hands swing into
+  // the new time (settle()).
+  const HOME_POINTS = 40; // about this many corners in the clip-path polygons (circle and house alike)
+  // in % of the face: the house outline, and the tree (matches .tree in the CSS)
+  const HOME_HOUSE = [[50, 9.5], [94, 53], [83.3, 53], [83.3, 87.5], [16.7, 87.5], [16.7, 53], [6, 53]];
+  // y of the floor and of each branch's fork (the left one leaves the trunk lower), branch length to
+  // the center of its dot, angles
+  const HOME_TREE = { floor: 86, forkLeft: 77, forkRight: 67, branch: 26.5, left: -135, right: -45 };
+  const HOME_CLOCK = { hour: 17, minute: 25 }; // hand lengths of the house clocks, so they fit in the house
+  const HOME_WAVE = 0.08; // seconds between columns
+  const HOME_SECONDS = 9.6;
+  let homeOn = false;
+  // Polygons with the same number of corners, so clip-path can morph between them: the house (its
+  // real corners plus points spread along its edges) and a circle with a point at each house
+  // point's angle from the center.
+  const homeClip = (() => {
+    const edges = HOME_HOUSE.map((a, i) => [a, HOME_HOUSE[(i + 1) % HOME_HOUSE.length]]);
+    const perimeter = edges.reduce((sum, [a, b]) => sum + Math.hypot(b[0] - a[0], b[1] - a[1]), 0);
+    const house = edges.flatMap(([a, b]) => {
+      const n = Math.max(1, Math.round(HOME_POINTS * Math.hypot(b[0] - a[0], b[1] - a[1]) / perimeter));
+      return Array.from({ length: n }, (_, k) => [a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n]);
+    });
+    const circle = house.map(([x, y]) => {
+      const a = Math.atan2(y - 50, x - 50);
+      return [50 + Math.cos(a) * 50, 50 + Math.sin(a) * 50];
+    });
+    const polygon = pts => `polygon(${pts.map(([x, y]) => `${x.toFixed(2)}% ${y.toFixed(2)}%`).join(', ')})`;
+    return { circle: polygon(circle), house: polygon(house) };
+  })();
+  const HOME_FACE = ['clip-path', 'background-color', 'border-radius', 'border-color']; // what morphs
+
+  // Returns how long the show takes in seconds.
+  function home(gen) {
+    const later = (s, fn) => setTimeout(() => { if (gen === showGen) fn(); }, s * 1000);
+    const hhmm = shown ?? '0000', poses = posesOf(hhmm);
+    const clocks = digits.flat();
+    const ofFace = pct => `calc((var(--s) - var(--gap)) * ${pct / 100})`; // a length in % of the face
+    const reaching = pct => `calc((var(--s) - var(--gap)) * ${pct / 100} + var(--t) / 2)`; // a hand that long
+    const both = c => [c.hour, c.minute];
+    const move = (h, css, transition) => { h.style.transition = transition; Object.assign(h.style, css); };
+    homeOn = true;
+    for (const c of clocks) {
+      c.face.classList.remove('blank');
+      c.face.style.clipPath = homeClip.circle; // no change yet, but now it can morph
+      c.tree = document.createElement('div');
+      c.tree.className = 'tree';
+      c.face.prepend(c.tree); // under the hands
+      for (const h of both(c)) move(h, { width: 'var(--t)' }, 'width 0.4s ease'); // down to the dot
+    }
+    root.offsetWidth; // the circles are in place before they morph
+    for (const c of clocks) {
+      const wave = c.x * HOME_WAVE, f = c.face.style;
+      // the face becomes a house: square corners (the round ones would cut the house), no rim
+      f.transition = HOME_FACE.map(p => `${p} 0.9s ease ${wave}s`).join(', ');
+      Object.assign(f, { clipPath: homeClip.house, backgroundColor: 'var(--home)', borderRadius: '0', borderColor: 'transparent' });
+      // the dot falls to the floor and bounces (the hands turn to the branch angles meanwhile, unseen)
+      later(0.9 + wave, () => {
+        const floor = `0 ${ofFace(HOME_TREE.floor - 50)}`, bounce = `0 ${ofFace(HOME_TREE.floor - 57)}`;
+        turnTo(c, HOME_TREE.left, HOME_TREE.right, { path: 'shortest', duration: 0.3, ease: SHOW_EASE, delay: 0 });
+        for (const h of both(c)) {
+          h.style.translate = floor;
+          h.animate([
+            { translate: '0 0', easing: 'cubic-bezier(0.55, 0, 1, 0.45)' },
+            { translate: floor, offset: 0.55, easing: 'ease-out' },
+            { translate: bounce, offset: 0.78, easing: 'ease-in' },
+            { translate: floor },
+          ], { duration: 750 });
+        }
+      });
+      // the trunk grows up and carries the dot: the left branch (hour hand) stays at the lower fork,
+      // the right one (minute hand) rides on to the upper one; each grows out to its dot
+      later(1.8 + wave, () => {
+        c.tree.classList.add('trunk');
+        move(c.hour, { translate: `0 ${ofFace(HOME_TREE.forkLeft - 50)}` }, 'translate 0.22s ease-out');
+        move(c.minute, { translate: `0 ${ofFace(HOME_TREE.forkRight - 50)}` }, 'translate 0.4s ease-out');
+      });
+      later(2.05 + wave, () => move(c.hour, { width: reaching(HOME_TREE.branch) }, 'width 0.5s ease-out'));
+      later(2.25 + wave, () => move(c.minute, { width: reaching(HOME_TREE.branch) }, 'width 0.5s ease-out'));
+      later(2.5 + wave, () => c.tree.classList.add('top')); // the top dot, as the trunk reaches it
+      later(2.7 + wave, () => c.tree.classList.add('rings'));
+      // the tree becomes a clock: the trunk and dots fade, the branches slide back to the center and
+      // turn to the actual time
+      later(4.4 + wave, () => {
+        c.tree.style.opacity = 0;
+        const now = new Date(), m = now.getMinutes() + now.getSeconds() / 60;
+        turnTo(c, hourToDeg(now.getHours() % 12 + m / 60), minuteToDeg(m), { path: 'shortest', duration: 1, ease: SHOW_EASE, delay: 0 });
+        const turning = `${c.hour.style.transition}, translate 1s ${SHOW_EASE}`; // turnTo()'s, plus the slide
+        move(c.hour, { translate: '0 0', width: reaching(HOME_CLOCK.hour) }, turning);
+        move(c.minute, { translate: '0 0', width: reaching(HOME_CLOCK.minute) }, turning);
+      });
+      // the house turns back into a face, the hands swing into the new time at full length
+      later(6.8 + wave, () => {
+        f.transition = HOME_FACE.map(p => `${p} 0.9s ease`).join(', ');
+        Object.assign(f, { clipPath: homeClip.circle, backgroundColor: '', borderRadius: '', borderColor: '' });
+        const pose = poses.get(c);
+        turnTo(c, hourToDeg(pose[0]), minuteToDeg(pose[1]), { path: 'shortest', duration: 1.6, ease: SHOW_EASE, delay: 0 });
+        for (const h of both(c)) h.style.translate = h.style.width = ''; // full length (turnTo()'s width transition)
+        c.face.classList.toggle('blank', isBlank(pose));
+      });
+    }
+    later(8.6 + 7 * HOME_WAVE, () => settle(hhmm, poses));
+    return HOME_SECONDS;
+  }
+
+  // From endScenes(): removes the trees and the inline styles (the faces are circles again by then).
+  function clearHome() {
+    if (!homeOn) return;
+    homeOn = false;
+    for (const c of digits.flat()) {
+      c.tree?.remove();
+      c.tree = null;
+      Object.assign(c.face.style, { clipPath: '', backgroundColor: '', borderRadius: '', borderColor: '', transition: '' });
+      c.hour.style.translate = c.hour.style.width = c.minute.style.translate = c.minute.style.width = '';
+    }
+  }
+
   const SHOWS = {
     rain: { name: 'Rain', steps: [
       { angles: () => [45, 225], dur: 3, delay: c => c.x * 0.1, path: 'shortest' },
@@ -1988,6 +2141,8 @@ function gClockClock(stage, options = {}) {
     bougainvillea: { name: 'Bougainvillea', play: () => { bougainvillea(); return BLOOM_SECONDS; }, keepLinks: true, heavy: true },
     // heavy without a Pi measurement: thousands of growing dots, kept out of Random (low power)
     plate: { name: 'Color plate', play: colorPlate, heavy: true },
+    // heavy until measured on the Pi
+    home: { name: 'Home', play: home, heavy: true },
     random: randomChoice(),
     // lowPower: picks only shows without the heavy flag (too much for a Raspberry Pi 3)
     randomLow: { ...randomChoice(), name: 'Random (low power)', lowPower: true },

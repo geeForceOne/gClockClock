@@ -152,6 +152,6 @@
     "type": "dropdown",
     "text": "Show",
     "value": 11,
-    "items": ["Rain", "Ripple", "Scissors", "Chaos", "Billiard", "Saber", "Tron", "Tron 2", "Matrix", "Bougainvillea", "Color plate", "Random", "Random (low power)"]
+    "items": ["Rain", "Ripple", "Scissors", "Chaos", "Billiard", "Saber", "Tron", "Tron 2", "Matrix", "Bougainvillea", "Color plate", "Home", "Random", "Random (low power)"]
   }
 }

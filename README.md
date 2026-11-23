@@ -10,7 +10,7 @@ form the time. Plain HTML and JavaScript, no build, no dependencies.
 Pick your setup:
 
 - **[Browser](#use):** open the live link, or `clock.html`.
-- **[Home Assistant dashboard](#home-assistant-dashboard):** a card, installed with HACS.
+- **[Home Assistant dashboard](#home-assistant-dashboard):** a card, installed from the Marketplace.
 - **[Windows desktop wallpaper](#windows-desktop-wallpaper-lively):** with Lively Wallpaper.
 - **[Raspberry Pi kiosk](#raspberry-pi-kiosk):** a full-screen clock on a small screen.
 
@@ -38,9 +38,10 @@ The clock as a card on a [Home Assistant](https://www.home-assistant.io/) dashbo
 
 ### Install
 
-1. In **HACS**, open the **⋮** menu → **Custom repositories**. Add
-   `https://github.com/geeForceOne/gClockClock` with the type **Dashboard**.
-2. Find **gClockClock** in HACS and download it. Reload the browser when HACS asks.
+1. Open **Settings → Marketplace** and add `https://github.com/geeForceOne/gClockClock` as a
+   custom repository with the type **Dashboard**. Adding a custom repository needs a GitHub account
+   connected in the Marketplace.
+2. Find **gClockClock** in the Marketplace and download it. Reload the browser when it asks.
 3. Edit a dashboard → **Add card** → **gClockClock**.
 
 ### Settings
@@ -63,7 +64,10 @@ transparent: true
 
 ### Update
 
-HACS shows an update when there is a new version.
+The Marketplace shows an update when there is a new version.
+
+On Home Assistant before 2026.11 the Marketplace is the separate HACS integration; the steps are
+the same there.
 
 gClockClock is not affiliated with or endorsed by Home Assistant or the Open Home Foundation.
 

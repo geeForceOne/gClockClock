@@ -1,12 +1,12 @@
-// gClockClock card for Home Assistant dashboards (installed with HACS, see docs/hacs.md):
+// gClockClock card for Home Assistant dashboards (installed from the Marketplace, see docs/hacs.md):
 //   type: custom:gclock-card
 //   path: spin
 //   hand: "#ff8800"
 // Every clock setting is a config key with the same name and values as clock.html's URL options,
 // plus `transparent` (the dashboard's card background instead of black). The clock itself is
-// clock.js, which HACS installs next to this file.
+// clock.js, which the Marketplace installs next to this file.
 
-// Load clock.js from next to this file, with the same ?hacstag (HACS's version) so the two match.
+// Load clock.js from next to this file, with the same query (the installed version) so the two match.
 if (!window.gClockClock) {
   const here = new URL(import.meta.url);
   await new Promise((resolve, reject) => {

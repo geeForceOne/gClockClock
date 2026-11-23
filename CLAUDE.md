@@ -8,7 +8,7 @@ Plain HTML/CSS/JS, no build, no dependencies. Public repo (MIT).
 - `clock.js` — the clock (engine and its CSS), built in a container element. Shared by all targets.
 - `clock.html` — the page: loads `clock.js`, plus the options panel and the kiosk bits. Open it in a
   browser to run.
-- `gClockClock.js` + `hacs.json` — the Home Assistant dashboard card (HACS).
+- `gClockClock.js` + `hacs.json` — the Home Assistant dashboard card (Marketplace, formerly HACS).
 - `wallpaper/` + `lively-setup.ps1` — Lively Wallpaper package and its installer.
 - `kiosk-setup.sh` — Raspberry Pi full-screen kiosk setup.
 - `docs/` — the notes below, plus README screenshots.
@@ -21,7 +21,7 @@ These are not loaded by default. Read the matching file first:
 - `docs/shows.md` — the scenes, `settle()`/`landedOn`, easter eggs (`EGGS`).
 - `docs/lively.md` — the wallpaper package, its Customize panel, `lively-setup.ps1`.
 - `docs/deploy.md` — GitHub Pages, self-update, `kiosk-setup.sh`, the Pi.
-- `docs/hacs.md` — the HA card, the stage (where shows put their layers), HACS.
+- `docs/hacs.md` — the HA card, the stage (where shows put their layers), the Marketplace.
 
 ## Core model
 
@@ -64,7 +64,7 @@ override saved settings: `?path=spin&hand=ff8800&gap=8&clear`.
 ## Git
 
 - One branch per change, off an up-to-date main. A push to main is a deploy (Pages; the Pi
-  reloads within ~15 min; HACS users get it as an update).
+  reloads within ~15 min; Marketplace users get it as an update).
 - Stop before merging or pushing so the user can test `clock.html` locally; say what was and
   wasn't checked.
 - Commit as `geeForceOne <1780268+geeForceOne@users.noreply.github.com>`, never a real name (public

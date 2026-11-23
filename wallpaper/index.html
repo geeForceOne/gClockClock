@@ -24,11 +24,11 @@
   // Lively builds its Customize panel from LivelyProperties.json and calls
   // livelyPropertyListener(name, value) once per entry at load and again on every change.
 
-  // The clock ships in the package (lively-setup.ps1 copies clock.html next to this file), so
+  // The clock ships in the package (lively-setup.ps1 copies clock.html and clock.js next to this file), so
   // the clock and these settings are always the same version. `?clock=<url>` overrides it when
   // this page is opened in a browser for testing (e.g. ?clock=../clock.html from the repo).
   const CLOCK_URL = new URLSearchParams(location.search).get('clock') || 'clock.html';
-  // clock.html keeps 24px of space on each side of the clock (its `100vw - 48px`)
+  // clock.html keeps 24px of space on each side of the clock (clock.js's --pad)
   const CLOCK_PAD = 24;
   const IMAGE_FOLDER = 'images';
   const CORNERS = ['bottom-right', 'bottom-left', 'top-right', 'top-left', 'center'];

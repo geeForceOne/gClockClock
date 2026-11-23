@@ -21,8 +21,9 @@ when not started from the session); `~/.config/labwc/autostart` starts it via `l
 auto-login, no blanking, Bluetooth off, packagekit masked, and with `--upside-down` the rotation
 below (backups as `*.gclock-bak`).
 
-Updating = pushing to `main`: when served over http(s) the page fetches itself every 5 minutes
-and reloads when the text changed (GitHub Pages caches up to 10 minutes, so allow ~15). If a
+Updating = pushing to `main`: when served over http(s) the page fetches itself and `clock.js` every
+5 minutes (`cache: 'reload'`, which also refreshes the cached copies, so the reload gets the new
+`clock.js`) and reloads when either text changed (GitHub Pages caches up to 10 minutes, so allow ~15). If a
 broken version stops the page itself, it can't reload; restarting Chromium fixes that after a fix
 is pushed. In the page, the `kiosk` section at the end of the script does the self-update
 (`checkUpdate()`, only over http(s)) and hides the cursor after 3s idle (`body.idle`). Don't use

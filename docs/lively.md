@@ -4,7 +4,7 @@ Details split off from `CLAUDE.md`.
 
 ## The package
 
-`wallpaper/` plus `clock.html` is a Lively Wallpaper web wallpaper package (`LivelyInfo.json`,
+`wallpaper/` plus `clock.html` and `clock.js` is a Lively Wallpaper web wallpaper package (`LivelyInfo.json`,
 `Type: 1`); everything is local, so the wrapper, its Customize panel and the clock are always the
 same version. `index.html` shows a background image and `clock.html` in an `<iframe>` with
 `?transparent&wallpaper` (no page background, no options click) plus every clock setting as a URL
@@ -21,7 +21,7 @@ wallpaper all settings live in `LivelyProperties.json` (Lively's Customize panel
 - image URL (overrides it; debounced, falls back to the color and retries)
 - color, corner, size (% of screen width)
 - the two margins (px from the screen edge to the faces; the frame's height follows the clock's
-  8:3 shape plus clock.html's 24px padding)
+  8:3 shape plus the clock's 24px padding, `--pad`)
 - a copy of every clock setting
 
 **Every clock setting change must be mirrored here**: dropdowns send the item's index, so

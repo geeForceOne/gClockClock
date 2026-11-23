@@ -1,6 +1,8 @@
 # Internals
 
 Details split off from `CLAUDE.md`: the options panel, magnet, face moves, step shows and the look.
+The options panel and the kiosk code are in `clock.html`, everything else in `clock.js` (the stage
+and the card: `docs/hacs.md`).
 The scenes and easter eggs are in `docs/shows.md`.
 
 ## Options panel
@@ -10,7 +12,8 @@ digit); a click outside (or Esc) closes it — there is no × button. With `?wal
 wallpaper) the first clock opens nothing; its settings come from Lively's Customize panel. It is
 kept small (no title, no option descriptions, `width: fit-content`) and sits low on the screen
 with a light backdrop so previews stay visible. Clicking the last clock (bottom-right) plays a
-crazy show. The clock itself fills the whole window.
+crazy show (in `clock.js`; the first clock calls `options.onFirstClock`). The clock itself fills
+the whole window.
 
 Three columns (`.section`, side by side, stacked below 700px), each a grid of label + control
 rows of the same height (`--row`):
@@ -31,10 +34,10 @@ its own pointer-drag code with `touch-action: none`. The native popup ran off th
 and `appearance: base-select` wouldn't scroll by touch there. The shade reaches outside the dialog,
 so the click-outside check also needs `e.target === dialog`.
 
-Settings persist in `localStorage` (`clockclock-settings`), wrapped in try/catch; every value goes
+Settings persist in `localStorage` (`clockclock-settings`, only with `options.store`), wrapped in try/catch; every value goes
 through `accept(key, value)`, which validates it. URL options with the same names
 (`?path=spin&hand=ff8800&gap=8&clear`) override the saved ones. `applyLook()` writes face, hand,
-rim and gap to the `--face`/`--hand`/`--rim`/`--gap` variables (gap even, 0–24px).
+rim and gap to the `--face`/`--hand`/`--rim`/`--gap` variables on the stage (gap even, 0–24px).
 
 Fade: `busy(s)` (from `showTime()` and `goCrazy()`, extending, never shortening) removes `.rest`
 from `root` and sets it again when nothing moves any more; `.rest` makes the rims transparent (out
@@ -100,7 +103,7 @@ show.
 ## Look
 
 Black page and faces, white hands, thin (0.5px) gray `#555` rim. Colors are CSS variables on
-`:root`. Clock size `--s` fits 8 clocks across and 3 down in the window. `--s` is the grid cell (all
+the stage (`.gclock`). Clock size `--s` fits 8 clocks across and 3 down in the stage, inside `--pad`. `--s` is the grid cell (all
 positions, hand reach and billiard math are in cell units); each face is `--gap` (4px, keep it even
 so centers stay on whole pixels) smaller with half of it as margin. Where CSS `round()` is
 supported, `--s` and hand thickness `--t` snap to even whole pixels and `.clock24` is positioned on

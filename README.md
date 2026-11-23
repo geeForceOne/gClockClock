@@ -1,11 +1,18 @@
 # gClockClock
 
 A ClockClock 24 style clock in the browser: 24 small analog clocks whose hands turn together to
-form the time. One HTML file, no build, no dependencies.
+form the time. Plain HTML and JavaScript, no build, no dependencies.
 
 ![The clock in a browser window](docs/clock.png)
 
 **Live:** https://geeforceone.github.io/gClockClock/clock.html
+
+Pick your setup:
+
+- **[Browser](#use):** open the live link, or `clock.html`.
+- **[Home Assistant dashboard](#home-assistant-dashboard):** a card, installed with HACS.
+- **[Windows desktop wallpaper](#windows-desktop-wallpaper-lively):** with Lively Wallpaper.
+- **[Raspberry Pi kiosk](#raspberry-pi-kiosk):** a full-screen clock on a small screen.
 
 ## Use
 
@@ -24,6 +31,39 @@ Open `clock.html` in a browser (or the live link). The clock fills the whole win
 | Crazy | How often a crazy show plays, which show (Random picks one). Go crazy plays it now. |
 
 All settings can also be given in the URL, e.g. `clock.html?path=spin&hand=ffcc00&fade`.
+
+## Home Assistant dashboard
+
+The clock as a card on a [Home Assistant](https://www.home-assistant.io/) dashboard.
+
+### Install
+
+1. In **HACS**, open the **⋮** menu → **Custom repositories**. Add
+   `https://github.com/geeForceOne/gClockClock` with the type **Dashboard**.
+2. Find **gClockClock** in HACS and download it. Reload the browser when HACS asks.
+3. Edit a dashboard → **Add card** → **gClockClock**.
+
+### Settings
+
+The card editor has the same options as the browser panel (Time change, Look, Crazy shows), plus
+**Transparent background** to show the dashboard's card color instead of black. Tap the last clock
+(bottom right) to play a crazy show.
+
+In YAML, the keys are the URL option names:
+
+```yaml
+type: custom:gclock-card
+path: spin
+easing: overshoot
+hand: "#ffcc00"
+crazy: some
+show: randomLow
+transparent: true
+```
+
+### Update
+
+HACS shows an update when there is a new version.
 
 ## Windows desktop wallpaper (Lively)
 

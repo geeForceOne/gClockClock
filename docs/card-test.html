@@ -1,0 +1,18 @@
+<!doctype html>
+<!-- Tries the Home Assistant card without Home Assistant: serve the repo (python -m http.server) and open docs/card-test.html. ha-card is a plain element here. -->
+<html><head><meta charset="utf-8"><title>gClockClock card test</title>
+<style>body{background:#f3f3f3;font:14px sans-serif;margin:16px} .col{width:620px;margin-bottom:16px} ha-card{display:block;background:#fff;border-radius:12px;box-shadow:0 1px 3px #0003}</style>
+<script type="module" src="../gClockClock.js?hacstag=test"></script>
+</head><body>
+<div class="col" id="a"></div>
+<div class="col" style="width:360px" id="b"></div>
+<script type="module">
+await customElements.whenDefined('gclock-card');
+const a = document.createElement('gclock-card');
+a.setConfig({ type: 'custom:gclock-card', path: 'spin', hand: [255, 136, 0] });
+document.getElementById('a').append(a);
+const b = document.createElement('gclock-card');
+b.setConfig({ type: 'custom:gclock-card', transparent: true, face: '#222222', gap: 2 });
+document.getElementById('b').append(b);
+window.cards = [a, b];
+</script></body></html>

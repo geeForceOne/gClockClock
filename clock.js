@@ -1,0 +1,2292 @@
+// gClockClock: 24 small analog clocks whose hands form the time. This file builds the clock in a
+// container element (the stage) and runs it. Shared by clock.html (the page: browser, Lively
+// wallpaper, Pi kiosk) and gClockClock.js (the Home Assistant card).
+// A classic script, not a module, so clock.html also works when opened from disk (file://).
+(() => {
+const CSS = String.raw`
+  .gclock {
+    --page: #000000;
+    --face: #000000;
+    --rim: #555555;
+    --hand: #ffffff;
+    --text: #bbbbbb;
+    --muted: #666666;
+    --line: #333333;
+    --label: #ffffff;
+    /* saber duel: blade glow of the left and right fighter */
+    --saber-a: #3399ff;
+    --saber-b: #ff3333;
+    /* tron show: light cycles and their trails, and the faint grid the rims become */
+    --tron-a: #33e0ff;
+    --tron-b: #ff9a1f;
+    --tron-grid: rgba(51, 224, 255, 0.35);
+    /* matrix show: code rain and the hands that condense out of it */
+    --matrix: #3dff6e;
+    --matrix-rim: rgba(61, 255, 110, 0.35);
+    /* bougainvillea show (the bract magentas are BRACT_COLORS in the script) */
+    --vine: #6b4f2a;
+    --shoot: #5f7f2c;
+    --leaf: #3f7d2c;
+    /* clock size: 8 clocks across, 3 down, fit the stage (100cq*: the stage, a size container) */
+    --pad: 24px;
+    --s: min(calc((100cqw - 2 * var(--pad)) / 8), calc((100cqh - 2 * var(--pad)) / 3));
+    /* space between neighboring faces; even, so face centers stay on whole pixels */
+    --gap: 4px;
+  }
+  /* whole, even pixels for clock size and hand thickness, so every clock's center and every
+     hand edge lands on the same pixel grid and joined hands line up with no visible seam */
+  @supports (width: round(down, 1.5px, 2px)) {
+    .gclock { --s: round(down, min(calc((100cqw - 2 * var(--pad)) / 8), calc((100cqh - 2 * var(--pad)) / 3)), 2px); }
+    .clock24 .face { --t: round(calc(var(--s) * 0.05), 2px); }
+    /* centered like the stage's flexbox would, but on a whole pixel so edges stay crisp */
+    .clock24 {
+      position: absolute;
+      left: round(down, calc((100cqw - var(--s) * 8) / 2), 1px);
+      top: round(down, calc((100cqh - var(--s) * 3) / 2), 1px);
+    }
+  }
+  /* transparent: no page background, so what is behind the clock shows through (wallpaper/, the card) */
+  .gclock.transparent { --page: transparent; }
+  /* the stage: the element the clock is built in (a full-window div in clock.html, the card's div) */
+  .gclock {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    container-type: size;
+    background: var(--page);
+    color: var(--text);
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* the first clock opens the options, the last one plays a crazy show */
+  .face.settings-trigger { cursor: pointer; }
+  .clock24 { display: flex; }
+  .digit {
+    display: grid;
+    grid-template-columns: repeat(2, var(--s));
+    grid-template-rows: repeat(3, var(--s));
+  }
+  .face {
+    position: relative;
+    box-sizing: border-box;
+    /* the grid cell stays --s (all positions are in cell units); the face is --gap smaller */
+    width: calc(var(--s) - var(--gap));
+    height: calc(var(--s) - var(--gap));
+    margin: calc(var(--gap) / 2);
+    border-radius: 50%;
+    background: var(--face);
+    border: 0.5px solid var(--rim);
+    transition: border-color 0.6s ease;
+    /* hand thickness: 2px rect + 8px stroke on a 200px clock */
+    --t: calc(var(--s) * 0.05);
+  }
+  .hand {
+    position: absolute;
+    top: calc(50% - var(--t) / 2);
+    left: calc(50% - var(--t) / 2);
+    height: var(--t);
+    border-radius: calc(var(--t) / 2);
+    background: var(--hand);
+    transform-origin: calc(var(--t) / 2) 50%;
+    transition: transform 8s cubic-bezier(0.3333, 0.6667, 0.6667, 1), opacity 2s ease;
+    z-index: 1; /* reaching hands paint over the neighboring face */
+  }
+  /* Fade rim: the rims fade out (slowly) while nothing moves and come back fast (busy()) */
+  .clock24.rest .face { border-color: transparent; transition-duration: 2s; }
+  .face.blank .hand { opacity: 0; }
+  /* Real face move: 12 hour lines round the rim */
+  .face::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: repeating-conic-gradient(from -0.75deg, var(--muted) 0 1.5deg, transparent 1.5deg 30deg);
+    mask: radial-gradient(closest-side, transparent 78%, #000 78% 93%, transparent 93%);
+    opacity: 0;
+    transition: opacity 0.6s ease;
+    pointer-events: none;
+  }
+  .face.dial::before { opacity: 1; }
+  .hand.minute { width: calc(var(--s) * 0.48 + var(--t) / 2); }
+  .hand.hour   { width: calc(var(--s) * 0.425 + var(--t) / 2); }
+  /* magnet: reach all the way to the neighbor's center, so the stroke is one bar */
+  .hand.reach  { width: calc(var(--s) + var(--t)); }
+  /* magnet: the neighbor's hand reaches over this one, which shrinks to its pivot dot */
+  .hand.tucked { width: var(--t); }
+  /* billiard: hands of the two cue-stick clocks stretch into the stick */
+  .hand.stick  { width: calc(var(--s) * 1.1 + var(--t)); }
+  /* saber duel: a fighter's minute hand ignites into a glowing blade (--glow is set per fighter) */
+  .hand.saber {
+    width: calc(var(--s) * 1.9 + var(--t) / 2);
+    box-shadow: 0 0 calc(var(--t) * 1.5) calc(var(--t) * 0.6) var(--glow), 0 0 calc(var(--t) * 4) var(--glow);
+  }
+  .hand.saber.clash { box-shadow: 0 0 calc(var(--t) * 2) var(--t) #fff, 0 0 calc(var(--t) * 6) var(--glow); }
+  .spark {
+    position: absolute;
+    width: calc(var(--s) * 0.6);
+    height: calc(var(--s) * 0.6);
+    border-radius: 50%;
+    background: radial-gradient(closest-side, #fff 20%, rgba(255, 255, 255, 0.5) 45%, transparent);
+    pointer-events: none;
+    z-index: 5;
+  }
+  /* tron show: trails are glowing hands (--trail is set per clock), heads and derez pixels are divs */
+  .clock24.tron .face { border-color: var(--tron-grid); }
+  .hand.trail { background: var(--trail); box-shadow: 0 0 calc(var(--t) * 1.5) calc(var(--t) * 0.3) var(--trail); }
+  .cycle, .pixel { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 4; }
+  .cycle {
+    width: calc(var(--s) * 0.26);
+    height: calc(var(--s) * 0.1);
+    margin: calc(var(--s) * -0.05) 0 0 calc(var(--s) * -0.13);
+    border-radius: calc(var(--s) * 0.05);
+    background: #fff;
+    box-shadow: 0 0 calc(var(--s) * 0.04) calc(var(--s) * 0.02) var(--trail), 0 0 calc(var(--s) * 0.2) var(--trail);
+  }
+  .pixel {
+    width: calc(var(--s) * 0.05);
+    height: calc(var(--s) * 0.05);
+    margin: calc(var(--s) * -0.025) 0 0 calc(var(--s) * -0.025);
+    background: var(--trail);
+  }
+  /* matrix show: a canvas of code rain over the faces (under the hands), green hands and rims */
+  .matrix { position: absolute; pointer-events: none; }
+  .clock24 .face.coded { border-color: var(--matrix-rim); }
+  .hand.code { background: var(--matrix); box-shadow: 0 0 calc(var(--t) * 1.5) calc(var(--t) * 0.3) var(--matrix); }
+  /* color plate show: a canvas of colored dots over the faces (under the hands) */
+  .plate { position: absolute; pointer-events: none; transition: opacity 1.5s ease; }
+  /* bougainvillea show: an SVG layer over the clock in grid cells (viewBox 0 0 8 3) */
+  .bloom { position: absolute; overflow: visible; pointer-events: none; z-index: 2; }
+  .bloom .vine { fill: none; stroke: var(--vine); stroke-width: 0.03; stroke-linecap: round; }
+  .bloom .tendril { fill: none; stroke: var(--shoot); stroke-width: 0.016; stroke-linecap: round; }
+  .bloom .leaf { fill: var(--leaf); }
+  .bloom .blossom { fill: #fffbe6; }
+  .no-anim .hand { transition: none !important; }
+
+  /* ---- easter eggs: class egg-<id> on the stage on their days (EGGS in the script) ---- */
+  /* Día de los Muertos: the hands are arm bones with knobbed joints. Where a stroke of the digit
+     ends (both hands of the clock point the same way, .end) a skeleton hand reaches back out of the
+     center; a hand pointing at nothing (not .linked, a stub) ends in one at its tip. */
+  .egg-muertos {
+    --knobs: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 16' fill='%23efe6d2'%3E%3Ccircle cx='5' cy='4.4' r='4'/%3E%3Ccircle cx='5' cy='11.6' r='4'/%3E%3C/svg%3E");
+    --skeleton: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 22' fill='none' stroke='%23efe6d2' stroke-linecap='round'%3E%3Ccircle cx='3' cy='11' r='2.6' fill='%23efe6d2' stroke='none'/%3E%3Cpath stroke-width='2.2' d='M5 10 11 5M5.5 10.5 12 9M5.5 11.5 12 13M5 12 10.5 16.5'/%3E%3Cpath stroke-width='1.9' d='M12.6 4.4 16 2.8M17.2 2.3 20 1.4M13.6 8.8 17.6 8.2M18.8 8 22.4 7.7M13.6 13.2 17.4 13.8M18.6 14 21.6 14.4M11.8 17.2 14.6 18.8M15.6 19.3 17.8 20.2'/%3E%3Cpath stroke-width='2' d='M4 13.5 6.5 17.5M7.3 18.6 9 20.6'/%3E%3C/svg%3E");
+  }
+  .egg-muertos .hand:not(.trail, .code, .saber, .stick) {
+    background: linear-gradient(transparent 20%, #efe6d2 20% 80%, transparent 80%) no-repeat 0 0 / 100% 100%;
+    border-radius: 0;
+  }
+  .egg-muertos .hand:not(.trail, .code, .saber, .stick)::before, .egg-muertos .hand:not(.trail, .code, .saber, .stick)::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    translate: 0 -50%;
+    width: calc(var(--t) * 1.3);
+    height: calc(var(--t) * 2);
+    background: var(--knobs) no-repeat center / contain;
+    pointer-events: none;
+  }
+  .egg-muertos .hand:not(.trail, .code, .saber, .stick)::before { left: calc(var(--t) * -0.15); }
+  .egg-muertos .hand:not(.trail, .code, .saber, .stick)::after { right: calc(var(--t) * -0.15); }
+  .egg-muertos .hand:not(.trail, .code, .saber, .stick):not(.linked) { background-size: calc(100% - var(--s) * 0.17) 100%; }
+  .egg-muertos .hand:not(.trail, .code, .saber, .stick):not(.linked)::after, .egg-muertos .hand:not(.trail, .code, .saber, .stick).minute.end::before {
+    width: calc(var(--s) * 0.2);
+    height: calc(var(--s) * 0.17);
+    background-image: var(--skeleton);
+  }
+  .egg-muertos .hand:not(.trail, .code, .saber, .stick):not(.linked)::after { right: 0; }
+  .egg-muertos .hand:not(.trail, .code, .saber, .stick).minute.end::before { left: calc(var(--t) * 0.5 - var(--s) * 0.2); transform: scaleX(-1); }
+  .egg-muertos .hand:not(.trail, .code, .saber, .stick).hour.end::before, .egg-muertos .hand:not(.trail, .code, .saber, .stick).tucked:not(.end)::before, .egg-muertos .hand:not(.trail, .code, .saber, .stick).tucked::after { display: none; }
+  /* May the 4th: every hand is a lightsaber, a hilt at the pivot and a glowing blade (--blade is set
+     per clock: a classic color, random but the same all day) */
+  .egg-may4 .hand:not(.trail, .code, .saber, .stick) { background: none; }
+  .egg-may4 .hand:not(.trail, .code, .saber, .stick)::before, .egg-may4 .hand:not(.trail, .code, .saber, .stick)::after { content: ''; position: absolute; pointer-events: none; }
+  .egg-may4 .hand:not(.trail, .code, .saber, .stick)::before { /* the hilt */
+    left: 0;
+    top: 50%;
+    translate: 0 -50%;
+    width: calc(var(--s) * 0.13);
+    height: calc(var(--t) * 1.5);
+    border-radius: calc(var(--t) * 0.3);
+    background: repeating-linear-gradient(to right, #a3a7af 0 calc(var(--t) * 0.5), #3b3d42 0 calc(var(--t) * 0.9));
+  }
+  .egg-may4 .hand:not(.trail, .code, .saber, .stick)::after { /* the blade */
+    inset: 0 0 0 calc(var(--s) * 0.13);
+    border-radius: calc(var(--t) / 2);
+    background: #fff;
+    box-shadow: 0 0 calc(var(--t) * 1.2) calc(var(--t) * 0.5) var(--blade), 0 0 calc(var(--t) * 3) var(--blade);
+  }
+  .egg-may4 .hand:not(.trail, .code, .saber, .stick).tucked::before, .egg-may4 .hand:not(.trail, .code, .saber, .stick).tucked::after { display: none; }
+  /* Christmas: candy-cane hands; snow falls (.snow) and piles up in the faces (--pile grows all day) */
+  .egg-christmas .hand:not(.trail, .code, .saber, .stick) {
+    background: repeating-linear-gradient(-50deg, #e3262e 0 calc(var(--t) * 0.8), #fff 0 calc(var(--t) * 1.6));
+  }
+  .egg-christmas .face { background: linear-gradient(to top, #eef4ff var(--pile, 4%), var(--face) var(--pile, 4%)); }
+  .snow { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 3; }
+  .snow i { position: absolute; top: -3cqh; border-radius: 50%; background: #fff; animation: fall linear infinite; }
+  @keyframes fall {
+    25% { transform: translate(1.2cqw, 27cqh); }
+    50% { transform: translate(-0.8cqw, 54cqh); }
+    75% { transform: translate(1cqw, 81cqh); }
+    to { transform: translate(0, 108cqh); }
+  }
+  /* Valentine's Day: pink hands; the faces not used by a digit show a beating heart */
+  .egg-valentine .hand:not(.trail, .code, .saber, .stick) { background: #ff5c9d; }
+  .egg-valentine .face::after {
+    content: '';
+    position: absolute;
+    inset: 27%;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 22'%3E%3Cpath fill='%23ff5c9d' d='M12 21C5 15 1 11.5 1 7a5.5 5.5 0 0 1 11-2.5A5.5 5.5 0 0 1 23 7c0 4.5-4 8-11 14z'/%3E%3C/svg%3E") no-repeat center / contain;
+    opacity: 0;
+    transition: opacity 1s ease;
+    pointer-events: none;
+  }
+  .egg-valentine .face.blank::after { opacity: 1; animation: beat 1.4s ease-in-out infinite; }
+  @keyframes beat {
+    0%, 40%, 100% { transform: scale(1); }
+    15% { transform: scale(1.15); }
+    28% { transform: scale(1.05); }
+  }
+  /* New Year: the fireworks at midnight */
+  .firework {
+    position: absolute;
+    width: calc(var(--s) * 0.06);
+    height: calc(var(--s) * 0.06);
+    margin: calc(var(--s) * -0.03) 0 0 calc(var(--s) * -0.03);
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 4;
+  }
+`;
+
+// Adds the clock's CSS once to the page, or to the shadow root the stage is in (the card).
+// A stage outside any document (gClockClock.choices()) needs none.
+function addStyle(stage) {
+  const root = stage.getRootNode();
+  const target = root instanceof ShadowRoot ? root : root === document ? document.head : null;
+  if (!target || target.querySelector('style[data-gclock]')) return;
+  const style = document.createElement('style');
+  style.dataset.gclock = '';
+  style.textContent = CSS;
+  target.append(style);
+}
+
+// Builds a clock in stage and starts it. options (all optional):
+//   settings: values on top of the saved and URL ones (the card's config)
+//   store: load and save the settings in localStorage   url: take URL options (?path=spin…)
+//   transparent: no background   onFirstClock: click handler for the first clock
+//   idle: build only, don't run (for gClockClock.choices())
+// Returns the control object at the end.
+function gClockClock(stage, options = {}) {
+  addStyle(stage);
+
+  // Hand poses per digit, clocks in row-major order (2 wide, 3 high). From Digit.cs.
+  const DIGITS = [
+    [[6, 15], [9, 30], [6, 0], [0, 30], [3, 0], [0, 45]],                   // 0
+    [[7.5, 37.5], [6, 30], [7.5, 37.5], [6, 0], [7.5, 37.5], [0, 0]],       // 1
+    [[3, 15], [9, 30], [6, 15], [0, 45], [0, 15], [9, 45]],                 // 2
+    [[3, 15], [9, 30], [3, 15], [9, 0], [3, 15], [9, 0]],                   // 3
+    [[6, 30], [6, 30], [0, 15], [6, 0], [7.5, 37.5], [0, 0]],               // 4
+    [[6, 15], [9, 45], [0, 15], [6, 45], [3, 15], [0, 45]],                 // 5
+    [[6, 15], [9, 45], [6, 0], [6, 45], [0, 15], [0, 45]],                  // 6
+    [[3, 15], [6, 45], [7.5, 37.5], [6, 0], [7.5, 37.5], [0, 0]],           // 7
+    [[6, 15], [6, 45], [0, 15], [0, 45], [0, 15], [0, 45]],                 // 8
+    [[6, 15], [6, 45], [3, 0], [6, 0], [3, 15], [0, 45]],                   // 9
+  ];
+  const NEUTRAL = [7.5, 7.5];
+  const isBlank = ([h, m]) => h === 7.5 && m === 37.5; // clock not used by the digit
+
+  const hourToDeg = h => h * (360 / 12) - 90;
+  const minuteToDeg = m => m * (360 / 60) - 90;
+  const mod = (a, n) => ((a % n) + n) % n;
+
+  // ---- animation options ----
+  // A 'random' entry picks one of the other entries again at every time change (see pickActive).
+  const randomChoice = () => ({ name: 'Random', random: true });
+  // Each path turns (current angle, target angle) into the next angle to rotate to.
+  // dir is +1 for the hour hand, -1 for the minute hand.
+  const PATHS = {
+    original: { name: 'Original',
+      next: (cur, target) => target },
+    shortest: { name: 'Shortest',
+      next: (cur, target) => cur + mod(target - cur + 180, 360) - 180 },
+    clockwise: { name: 'Clockwise',
+      next: (cur, target) => cur + mod(target - cur, 360) },
+    opposite: { name: 'Opposite',
+      next: (cur, target, dir) => cur + dir * mod(dir * (target - cur), 360) },
+    spin: { name: 'Spin',
+      next: (cur, target, dir) => cur + dir * (mod(dir * (target - cur), 360) + 360) },
+    random: randomChoice(),
+  };
+  const EASINGS = {
+    easeOut:   { name: 'Ease out', css: 'cubic-bezier(0.3333, 0.6667, 0.6667, 1)' },
+    easeInOut: { name: 'Smooth', css: 'cubic-bezier(0.65, 0, 0.35, 1)' },
+    overshoot: { name: 'Overshoot', css: 'cubic-bezier(0.34, 1.4, 0.64, 1)' },
+    linear:    { name: 'Linear', css: 'linear' },
+    random:    randomChoice(),
+  };
+  // Delay in seconds for the clock at column x (0-7), row y (0-2).
+  const WAVES = {
+    off:      { name: 'Off', delay: () => 0 },
+    leftRight:{ name: 'Left → right', delay: (x) => x * 0.15 },
+    diagonal: { name: 'Diagonal', delay: (x, y) => (x + y) * 0.15 },
+    digits:   { name: 'Per digit', delay: (x) => Math.floor(x / 2) * 0.4 },
+    random:   randomChoice(),
+  };
+  const MAGNETS = {
+    off: { name: 'Off' },
+    on:  { name: 'On' },
+  };
+  // How often a crazy show plays before the new time lands: after each show the next one comes a
+  // random number of minutes later, within `between` (not at fixed times like the full hour).
+  const CRAZY = {
+    off:    { name: 'Off' },
+    minute: { name: 'Every minute', between: [1, 1] },
+    some:   { name: 'Every 10–20 min', between: [10, 20] },
+    hourly: { name: 'Every 40–60 min', between: [40, 60] },
+  };
+  // ids saved by older versions → their replacement
+  const RENAMED = { crazy: { five: 'some', hour: 'hourly' } };
+  // How a clock face itself moves when its hands start turning to a new pose.
+  // play(clock, delay) starts the move after delay seconds.
+  const keyframeMove = (ms, keyframes) => (clock, delay) =>
+    clock.face.animate(keyframes, { duration: ms, delay: delay * 1000, easing: 'ease-in-out' });
+  const FACES = {
+    off:    { name: 'Off' },
+    pulse:  { name: 'Pulse', play: keyframeMove(1200, [
+      { transform: 'scale(1)' }, { transform: 'scale(0.82)', offset: 0.35 },
+      { transform: 'scale(1.06)', offset: 0.7 }, { transform: 'scale(1)' }]) },
+    flip:   { name: 'Flip', play: keyframeMove(1400, [
+      { transform: 'perspective(600px) rotateY(0deg)' }, { transform: 'perspective(600px) rotateY(360deg)' }]) },
+    wobble: { name: 'Wobble', play: keyframeMove(1200, [
+      { transform: 'rotate(0deg)' }, { transform: 'rotate(-14deg)', offset: 0.2 }, { transform: 'rotate(10deg)', offset: 0.4 },
+      { transform: 'rotate(-6deg)', offset: 0.6 }, { transform: 'rotate(3deg)', offset: 0.8 }, { transform: 'rotate(0deg)' }]) },
+    real:   { name: 'Clock', play: realClock, everyClock: true }, // not just clocks whose pose changes
+    mix:    { name: 'Mix', play: (clock, delay) => {
+      const moves = Object.values(FACES).filter(f => f.play && f !== FACES.mix);
+      moves[Math.floor(Math.random() * moves.length)].play(clock, delay);
+    } },
+    random: randomChoice(),
+  };
+  const CHOICES = { path: PATHS, easing: EASINGS, wave: WAVES, magnet: MAGNETS, faces: FACES, crazy: CRAZY };
+  // SHOWS (defined with the crazy shows below) joins CHOICES as 'show'.
+
+  // face/hand/rim: colors; clear: faces without fill; fade: rims fade out while nothing moves;
+  // gap: space between faces in px (even, see --gap)
+  const settings = { path: 'original', easing: 'easeOut', wave: 'off', magnet: 'off', faces: 'off',
+    crazy: 'off', show: 'random', duration: 8, face: '#000000', clear: false, hand: '#ffffff',
+    rim: '#555555', fade: false, gap: 4 };
+  const DEFAULTS = { ...settings };
+  const randomFrom = ids => ids[Math.floor(Math.random() * ids.length)];
+  // What 'random' settings resolved to for the current time change.
+  const active = {};
+  function pickActive() {
+    for (const key of ['path', 'easing', 'wave', 'faces']) {
+      const table = CHOICES[key];
+      active[key] = settings[key] !== 'random' ? settings[key]
+        : randomFrom(Object.keys(table).filter(id => !table[id].random && id !== 'off'));
+    }
+  }
+  // Sets a setting if the value is valid for it (stored values and URL options alike; URL values
+  // arrive as strings). Returns whether it was taken.
+  function accept(key, value) {
+    let ok;
+    if (Object.hasOwn(RENAMED[key] ?? {}, value)) value = RENAMED[key][value];
+    if (key in CHOICES) ok = Object.hasOwn(CHOICES[key], value);
+    else if (key === 'duration') { value = +value; ok = Number.isInteger(value) && value >= 2 && value <= 16; }
+    else if (key === 'gap') { value = +value; ok = Number.isInteger(value) && value >= 0 && value <= 24 && value % 2 === 0; }
+    else if (key === 'face' || key === 'hand' || key === 'rim') {
+      value = String(value).toLowerCase().replace(/^#?/, '#');
+      ok = /^#[0-9a-f]{6}$/.test(value);
+    } else if (key === 'clear' || key === 'fade') {
+      if (typeof value === 'string') value = value === '' || value === '1' || value === 'true';
+      ok = typeof value === 'boolean';
+    }
+    if (ok) settings[key] = value;
+    return ok;
+  }
+  // Called once CHOICES is complete (after SHOWS). Saved settings first (options.store), then URL
+  // options (options.url: ?path=spin&hand=ff8800…; the Lively wallpaper passes all of its settings
+  // that way), then options.settings (the card's config) on top.
+  function loadSettings() {
+    if (options.store) try {
+      const stored = JSON.parse(localStorage.getItem('clockclock-settings')) || {};
+      for (const key of Object.keys(settings)) if (key in stored) accept(key, stored[key]);
+    } catch (e) {}
+    if (options.url) for (const [key, value] of new URLSearchParams(location.search)) if (key in settings) accept(key, value);
+    for (const [key, value] of Object.entries(options.settings ?? {})) if (key in settings) accept(key, value);
+    applyLook();
+    pickActive();
+  }
+  // The Look settings are CSS variables on the stage.
+  function applyLook() {
+    const css = stage.style;
+    css.setProperty('--face', settings.clear ? 'transparent' : settings.face);
+    css.setProperty('--hand', settings.hand);
+    css.setProperty('--rim', settings.rim);
+    css.setProperty('--gap', settings.gap + 'px');
+  }
+  const save = () => { if (options.store) try { localStorage.setItem('clockclock-settings', JSON.stringify(settings)); } catch (e) {} };
+
+  // ---- clock faces ----
+  stage.classList.add('gclock');
+  const root = document.createElement('div');
+  root.className = 'clock24 no-anim';
+  stage.append(root);
+  // An element's box relative to the stage, which holds the show layers (position: absolute).
+  const box = el => {
+    const r = el.getBoundingClientRect(), s = stage.getBoundingClientRect();
+    return { left: r.left - s.left - stage.clientLeft, top: r.top - s.top - stage.clientTop, width: r.width, height: r.height };
+  };
+  const digits = []; // digits[d][c] = { face, hour, minute, x, y }
+  const grid = [[], [], []]; // grid[y][x], same clocks
+
+  for (let d = 0; d < 4; d++) {
+    const digitEl = document.createElement('div');
+    digitEl.className = 'digit';
+    const clocks = [];
+    for (let c = 0; c < 6; c++) {
+      const face = document.createElement('div');
+      face.className = 'face';
+      const minute = document.createElement('div');
+      minute.className = 'hand minute';
+      const hour = document.createElement('div');
+      hour.className = 'hand hour';
+      face.append(minute, hour);
+      digitEl.append(face);
+      const clock = { face, hour, minute, x: d * 2 + (c % 2), y: Math.floor(c / 2), hourDeg: 0, minuteDeg: 0, pose: NEUTRAL,
+        ox: 0, oy: 0, vx: 0, vy: 0, realGen: 0 };
+      clocks.push(clock);
+      grid[clock.y][clock.x] = clock;
+    }
+    root.append(digitEl);
+    digits.push(clocks);
+  }
+
+  // Turn both hands of a clock to the given angles (degrees, 0 = right).
+  function turnTo(clock, hourTarget, minuteTarget, { path, duration, ease, delay }) {
+    const next = PATHS[path].next;
+    clock.hourDeg = next(clock.hourDeg, hourTarget, 1);
+    clock.minuteDeg = next(clock.minuteDeg, minuteTarget, -1);
+    const transition = `transform ${duration}s ${ease} ${delay}s, opacity 2s ease ${delay}s, ` +
+      'width 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)';
+    clock.hour.style.transition = clock.minute.style.transition = transition;
+    clock.hour.style.transform = `rotate(${clock.hourDeg}deg)`;
+    clock.minute.style.transform = `rotate(${clock.minuteDeg}deg)`;
+  }
+
+  // Real: the face becomes a real clock for a moment. Hour lines fade in and the hands turn to
+  // the actual time, hold, then the lines fade out and the hands go on to the clock's pose.
+  // Fits in the same duration as a plain move, so landing and magnet timing don't change.
+  function realClock(clock, delay) {
+    const gen = ++clock.realGen; // goCrazy() bumps it too, cancelling the second half
+    const now = new Date();
+    const m = now.getMinutes() + now.getSeconds() / 60;
+    const opts = { path: active.path, ease: EASINGS[active.easing].css };
+    const d = settings.duration;
+    turnTo(clock, hourToDeg(now.getHours() % 12 + m / 60), minuteToDeg(m), { ...opts, duration: d * 0.35, delay });
+    clock.face.classList.remove('blank');
+    setTimeout(() => { if (gen === clock.realGen) clock.face.classList.add('dial'); }, delay * 1000);
+    setTimeout(() => {
+      if (gen !== clock.realGen) return; // a newer move or a show took over
+      clock.face.classList.remove('dial');
+      clock.face.classList.toggle('blank', isBlank(clock.pose));
+      turnTo(clock, hourToDeg(clock.pose[0]), minuteToDeg(clock.pose[1]), { ...opts, duration: d * 0.4, delay: 0 });
+    }, (delay + d * 0.6) * 1000);
+  }
+
+  // Play the selected face move on a clock, starting after delay seconds.
+  function moveFace(clock, delay) {
+    FACES[active.faces].play?.(clock, delay);
+  }
+
+  // ---- billiard ----
+  // The Billiard crazy show: a whole-screen scene in phases. All clocks shrink into balls; 21 roll into a
+  // triangle rack. In the outer column on the other side, the middle clock is the cue ball and
+  // the two above and below it line up behind it as the cue stick: their hands point at the
+  // ball and stretch into the stick, pull back and strike. The balls bounce around the window
+  // (elastic collisions, wall bounces, friction), then glide home and grow back.
+  // Positions are offsets (ox/oy) from each clock's grid cell, in clock sizes.
+  const BALL = 0.45;           // ball size while playing, as a fraction of a clock
+  const R = BALL / 2;          // ball radius in clock sizes
+  const FRICTION = 0.5, RESTITUTION = 0.95, CUE_SPEED = 30;
+  const STICK_REACH = BALL * 1.1; // how far a stretched hand reaches (matches .hand.stick)
+  const PHASES = [['shrink', 0.6], ['rack', 1.2], ['aim', 1], ['pull', 0.7], ['strike', 0.12],
+    ['roll', 5], ['home', 1.3], ['grow', 0.6]];
+  const BILLIARD_SECONDS = PHASES.reduce((sum, [, s]) => sum + s, 0);
+  const smooth = k => k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+  const lerp = (a, b, k) => a + (b - a) * k;
+
+  let billiard = null; // { phase, t, side, dir, cue, sticks, scale, startScale, last }
+
+  function breakShot() {
+    const clocks = digits.flat();
+    const side = Math.random() < 0.5 ? 0 : 7; // column the cue ball comes from
+    const dir = side === 0 ? 1 : -1;          // direction of the shot
+    const startScale = billiard ? billiard.scale : 1;
+    const running = billiard !== null;
+    const cue = grid[1][side];
+    const sticks = [grid[0][side], grid[2][side]]; // front and back of the stick
+    billiard = { phase: 0, t: 0, side, dir, cue, sticks, scale: startScale, startScale, last: performance.now() };
+    clocks.forEach(c => {
+      c.vx = c.vy = 0; c.sx = c.ox; c.sy = c.oy; c.tx = 0; c.ty = 0; c.isStick = false;
+      c.hour.classList.remove('stick');
+      c.minute.classList.remove('stick');
+    });
+
+    rack(clocks.filter(c => c.x !== side), side);
+
+    // cue ball between the column and the rack, the stick clocks in line behind it
+    const cueX = side === 0 ? 2.6 : 5.4;
+    const frontX = cueX - dir * (R + 0.02 + STICK_REACH);
+    const place = (c, x) => { c.tx = x - (c.x + 0.5); c.ty = 1.5 - (c.y + 0.5); };
+    place(cue, cueX);
+    place(sticks[0], frontX);
+    place(sticks[1], frontX - dir * STICK_REACH);
+
+    if (!running) requestAnimationFrame(roll);
+  }
+
+  // Give 21 balls a target slot in a 6-row triangle, apex pointing at the cue ball, centered
+  // vertically. Balls keep their left-to-right order so they don't cross much on the way.
+  // Returns the balls in slot order (row by row from the apex).
+  function rack(balls, side) {
+    const dir = side === 0 ? 1 : -1;           // rows grow away from the cue
+    const d = BALL + 0.002;                     // touching, with a hair of room
+    const apexX = side === 0 ? 4.6 : 3.4;
+    const slots = [];
+    for (let row = 0; row < 6; row++) {
+      for (let j = 0; j <= row; j++) {
+        slots.push([apexX + dir * row * d * Math.sqrt(3) / 2, 1.5 + (j - row / 2) * d]);
+      }
+    }
+    const byX = (a, b) => dir * (a[0] - b[0]) || a[1] - b[1];
+    slots.sort(byX);
+    const ordered = balls.map(c => [c.x + 0.5, c.y + 0.5, c]).sort(byX).map(([, , c]) => c);
+    ordered.forEach((c, i) => {
+      c.tx = slots[i][0] - (c.x + 0.5);
+      c.ty = slots[i][1] - (c.y + 0.5);
+    });
+    return ordered;
+  }
+
+  // Ball centers are kept inside the stage.
+  function cellSize() {
+    const face = digits[0][0].face;
+    return face.offsetWidth + 2 * parseFloat(getComputedStyle(face).marginLeft);
+  }
+  function table() {
+    const s = cellSize();
+    const w = stage.clientWidth / s, h = stage.clientHeight / s;
+    return { left: -(w - 8) / 2, right: 8 + (w - 8) / 2, top: -(h - 3) / 2, bottom: 3 + (h - 3) / 2 };
+  }
+
+  function physics(clocks, frame) {
+    const t = table();
+    const steps = Math.max(1, Math.ceil(frame * 480));
+    const dt = frame / steps;
+    const drag = Math.exp(-FRICTION * dt);
+    for (let s = 0; s < steps; s++) {
+      for (const c of clocks) {
+        c.vx *= drag;
+        c.vy *= drag;
+        c.ox += c.vx * dt;
+        c.oy += c.vy * dt;
+        const px = c.x + 0.5 + c.ox, py = c.y + 0.5 + c.oy;
+        if (px - R < t.left)   { c.ox += t.left - (px - R);   c.vx = Math.abs(c.vx) * RESTITUTION; }
+        if (px + R > t.right)  { c.ox -= px + R - t.right;    c.vx = -Math.abs(c.vx) * RESTITUTION; }
+        if (py - R < t.top)    { c.oy += t.top - (py - R);    c.vy = Math.abs(c.vy) * RESTITUTION; }
+        if (py + R > t.bottom) { c.oy -= py + R - t.bottom;   c.vy = -Math.abs(c.vy) * RESTITUTION; }
+      }
+      for (let i = 0; i < clocks.length; i++) {
+        for (let j = i + 1; j < clocks.length; j++) {
+          const a = clocks[i], b = clocks[j];
+          const nx = b.x + b.ox - a.x - a.ox, ny = b.y + b.oy - a.y - a.oy;
+          const d = Math.hypot(nx, ny);
+          if (d >= BALL || d === 0) continue;
+          const ux = nx / d, uy = ny / d, push = (BALL - d) / 2;
+          a.ox -= ux * push; a.oy -= uy * push;
+          b.ox += ux * push; b.oy += uy * push;
+          const closing = (a.vx - b.vx) * ux + (a.vy - b.vy) * uy;
+          if (closing > 0) {
+            const impulse = closing * (1 + RESTITUTION) / 2;
+            a.vx -= impulse * ux; a.vy -= impulse * uy;
+            b.vx += impulse * ux; b.vy += impulse * uy;
+          }
+        }
+      }
+    }
+  }
+
+  // Stop a clock's hands where they are on screen right now. Without this, a hand whose new target
+  // equals the one it is already turning to keeps its old (maybe 8s) transition running.
+  function freezeHands(clock) {
+    for (const [hand, key] of [[clock.hour, 'hourDeg'], [clock.minute, 'minuteDeg']]) {
+      const m = new DOMMatrix(getComputedStyle(hand).transform);
+      clock[key] = Math.atan2(m.b, m.a) * 180 / Math.PI;
+      hand.style.transition = 'none';
+      hand.style.transform = `rotate(${clock[key]}deg)`;
+    }
+    clock.face.offsetWidth; // apply before the next transition starts
+  }
+
+  // Turn the stick clocks' hands into the stick, or back to their pose. Each clock points its hour
+  // hand at the cue ball and its minute hand straight back, so together they make one straight line.
+  function setStick(b, on) {
+    for (const c of b.sticks) {
+      c.isStick = on;
+      if (on) {
+        const deg = b.dir === 1 ? 0 : 180;
+        freezeHands(c);
+        c.face.classList.remove('blank');
+        turnTo(c, deg, deg + 180, { path: 'shortest', duration: 0.8, ease: SHOW_EASE, delay: 0 });
+      } else {
+        turnTo(c, hourToDeg(c.pose[0]), minuteToDeg(c.pose[1]), { path: 'shortest', duration: 0.6, ease: SHOW_EASE, delay: 0 });
+        c.face.classList.toggle('blank', isBlank(c.pose));
+      }
+      c.hour.classList.toggle('stick', on);
+      c.minute.classList.toggle('stick', on);
+    }
+  }
+
+  function roll(now) {
+    const b = billiard;
+    const clocks = digits.flat();
+    const frame = Math.min(0.05, (now - b.last) / 1000);
+    b.last = now;
+    b.t += frame;
+    const [phase, length] = PHASES[b.phase];
+    const k = Math.min(1, b.t / length);
+
+    if (phase === 'shrink') {
+      b.scale = lerp(b.startScale, BALL, smooth(k));
+    } else if (phase === 'rack') {
+      for (const c of clocks) {
+        c.ox = lerp(c.sx, c.tx, smooth(k));
+        c.oy = lerp(c.sy, c.ty, smooth(k));
+      }
+    } else if (phase === 'pull') {
+      for (const c of b.sticks) c.ox = lerp(c.sx, c.sx - b.dir * 0.5, smooth(k));
+    } else if (phase === 'strike') {
+      for (const c of b.sticks) c.ox = lerp(c.sx, c.sx + b.dir * 0.54, k * k);
+    } else if (phase === 'roll') {
+      physics(clocks, frame);
+    } else if (phase === 'home') {
+      for (const c of clocks) {
+        c.ox = lerp(c.sx, 0, smooth(k));
+        c.oy = lerp(c.sy, 0, smooth(k));
+      }
+    } else if (phase === 'grow') {
+      b.scale = lerp(BALL, 1, smooth(k));
+    }
+
+    for (const c of clocks) {
+      c.face.style.translate = `calc(var(--s) * ${c.ox}) calc(var(--s) * ${c.oy})`;
+      c.face.style.scale = b.scale;
+    }
+
+    const slow = phase === 'roll' && b.t > 1 && clocks.every(c => Math.hypot(c.vx, c.vy) < 0.15);
+    if (k < 1 && !slow) {
+      requestAnimationFrame(roll);
+      return;
+    }
+    // next phase
+    b.phase++;
+    b.t = 0;
+    if (b.phase === PHASES.length) {
+      clocks.forEach(c => { c.ox = c.oy = c.vx = c.vy = 0; c.face.style.translate = ''; c.face.style.scale = ''; });
+      billiard = null;
+      return;
+    }
+    const next = PHASES[b.phase][0];
+    if (next === 'aim') setStick(b, true);
+    if (next === 'roll') {
+      // the stick has hit: shoot the cue ball at the apex of the rack, a little off-center
+      setStick(b, false);
+      const c = b.cue;
+      const apexX = b.side === 0 ? 4.6 : 3.4;
+      const a = Math.atan2(1.5 - (c.y + 0.5 + c.oy), apexX - (c.x + 0.5 + c.ox)) + (Math.random() - 0.5) * 0.1;
+      c.vx = Math.cos(a) * CUE_SPEED;
+      c.vy = Math.sin(a) * CUE_SPEED;
+    }
+    clocks.forEach(c => { c.sx = c.ox; c.sy = c.oy; }); // each phase starts from where the balls are
+    requestAnimationFrame(roll);
+  }
+
+  // still: the hands are already there (Tron 2 left them in the pose), so nothing turns
+  function setPose(clock, [h, m], still = false) {
+    const changed = clock.pose[0] !== h || clock.pose[1] !== m;
+    clock.pose = [h, m];
+    if (still) {
+      clock.face.classList.toggle('blank', isBlank([h, m]));
+      return changed;
+    }
+    const delay = WAVES[active.wave].delay(clock.x, clock.y);
+    turnTo(clock, hourToDeg(h), minuteToDeg(m), {
+      path: active.path,
+      duration: settings.duration,
+      ease: EASINGS[active.easing].css,
+      delay,
+    });
+    clock.face.classList.toggle('blank', isBlank([h, m]));
+    if (changed || FACES[active.faces].everyClock) moveFace(clock, delay);
+    return changed;
+  }
+
+  function showTime(hhmm) {
+    const still = landedOn === hhmm; // Tron 2 already put the hands there
+    pickActive();
+    for (let d = 0; d < 4; d++) {
+      const pose = DIGITS[+hhmm[d]];
+      digits[d].forEach((clock, c) => setPose(clock, pose[c], still));
+    }
+    endScenes();
+    linkHands(still);
+    markLinked();
+    busy(settings.duration + maxDelay() + 1); // landed, face moves done, magnet snapped
+  }
+
+  // Fade rim: something moves for the next `seconds`, so show the rims until then (or until
+  // something that started earlier is done, whichever is later).
+  let restTimer = 0;
+  let restAt = 0;
+  function busy(seconds) {
+    clearTimeout(restTimer);
+    root.classList.remove('rest');
+    restAt = Math.max(restAt, Date.now() + seconds * 1000);
+    if (settings.fade) restTimer = setTimeout(() => root.classList.add('rest'), restAt - Date.now());
+  }
+
+  // Remove what a running or finished scene left behind: the Bougainvillea layer, the light
+  // cycles, the code rain, the saber duel.
+  function endScenes() {
+    landedOn = null; // showTime() has read it already
+    clearBloom();
+    clearTron();
+    clearMatrix();
+    clearPlate();
+    for (const clock of digits.flat()) {
+      if (clock.dueling) leaveDuel(clock);
+      clock.hour.classList.remove('saber', 'clash');
+      clock.minute.classList.remove('saber', 'clash');
+    }
+  }
+
+  // ---- magnet ----
+  // Screen direction of a hand at a resting angle: 0 right, 90 down, 180 left, 270 up.
+  const DIRS = { 0: [1, 0], 90: [0, 1], 180: [-1, 0], 270: [0, -1] };
+  const poseAngles = ([h, m]) => [mod(hourToDeg(h), 360), mod(minuteToDeg(m), 360)];
+
+  // Hands of this clock that point at a neighboring clock reach all the way to the
+  // neighbor's center ('reach'), e.g. the lower right stroke of a 3. If the neighbor has a
+  // hand pointing straight back, only the right/down one of the pair reaches and the other
+  // shrinks to its pivot ('tucked'), so the stroke is one bar with no joint in the middle.
+  function handLinks(clock) {
+    if (isBlank(clock.pose)) return [];
+    const links = [];
+    poseAngles(clock.pose).forEach((deg, i) => {
+      const dir = DIRS[deg];
+      if (!dir) return;
+      const other = grid[clock.y + dir[1]]?.[clock.x + dir[0]];
+      if (!other || isBlank(other.pose)) return;
+      const pointsBack = poseAngles(other.pose).includes(mod(deg + 180, 360));
+      const cls = pointsBack && (deg === 180 || deg === 270) ? 'tucked' : 'reach';
+      links.push({ hand: i === 0 ? clock.hour : clock.minute, other, cls });
+    });
+    return links;
+  }
+
+  // Retract every hand as the clocks start moving, then snap linked pairs together
+  // once both of their clocks have landed.
+  let magnetGen = 0;
+  function retractHands() {
+    ++magnetGen; // cancels pending snaps
+    for (const clock of digits.flat()) {
+      clock.hour.classList.remove('tucked', 'reach', 'linked', 'end');
+      clock.minute.classList.remove('tucked', 'reach', 'linked', 'end');
+    }
+  }
+
+  // For Día de los Muertos' skeleton hands, set as the time changes and cleared by retractHands():
+  // .linked: the hand points at a neighbor in the digit, Magnet on or off; .end: both hands point
+  // the same way, so a stroke of the digit ends in this clock.
+  function markLinked() {
+    for (const clock of digits.flat()) {
+      for (const { hand } of handLinks(clock)) hand.classList.add('linked');
+      const [h, m] = poseAngles(clock.pose);
+      if (!isBlank(clock.pose) && h === m) {
+        clock.hour.classList.add('end');
+        clock.minute.classList.add('end');
+      }
+    }
+  }
+
+  // now: the hands are already in place (after Tron 2 or Matrix), so link them at once.
+  function linkHands(now = false) {
+    retractHands();
+    const gen = magnetGen;
+    if (settings.magnet !== 'on') return;
+    const wave = WAVES[active.wave].delay;
+    for (const clock of digits.flat()) {
+      for (const { hand, other, cls } of handLinks(clock)) {
+        if (now) { hand.classList.add(cls); continue; }
+        const landed = settings.duration + Math.max(wave(clock.x, clock.y), wave(other.x, other.y));
+        setTimeout(() => { if (gen === magnetGen) hand.classList.add(cls); }, landed * 1000);
+      }
+    }
+  }
+
+  // Longest delay any clock gets with the wave setting (with Random: the longest of any wave,
+  // since tick() needs it before the next time change picks one).
+  const maxDelay = () => Math.max(...Object.entries(WAVES)
+    .filter(([id, w]) => w.delay && (settings.wave === 'random' || id === settings.wave))
+    .map(([, w]) => w.delay(7, 2)));
+
+  // ---- crazy shows ----
+  // A show is a list of steps. Each step turns every clock to angles(clock) along a path,
+  // with a per-clock start delay. Positions are relative to the middle of the 8×3 grid.
+  const rel = c => [c.x - 3.5, c.y - 1];
+  const dist = c => Math.hypot(...rel(c));
+  const randomDeg = () => Math.floor(Math.random() * 8) * 45;
+  const SHOW_EASE = 'cubic-bezier(0.65, 0, 0.35, 1)';
+  const SHOW_SECONDS = 13; // every show below fits in this
+
+  // ---- saber duel ----
+  // The Saber crazy show: the middle clocks of the second and third digit fight a sword duel. Their
+  // minute hand ignites into a glowing blade (the hour hand shrinks to its pivot as the hilt) and the
+  // clock is the fighter: it steps toward the other and back (CSS translate) while the blade swings
+  // around it. Every fight is made up fresh by saberFight() from random moves (strikes high and
+  // low, thrusts, a blade lock, missed swings that cut a clock next to the fight) and ends with a
+  // random winner's strike that cuts the other fighter in two. The other clocks point at the
+  // action. Positions are in grid cells.
+  const STRIKE_EASE = 'cubic-bezier(0.5, 0, 1, 1)';
+  const FIGHTERS = [[2, 1], [5, 1]]; // grid x, y of blue and red
+  const SABER_FIGHT = 6.5;  // no new move starts after this; the finishing strike follows
+  const SABER_REACH = 1.75; // farthest a clash may be from a hilt (the blade is 1.9 cells)
+
+  // The fight as a list of beats. A beat starts at t and lasts d seconds. blue/red move that fighter:
+  // turn the blade to deg (screen angle) or point it at a spot at: [x, y], step: cells toward the
+  // other fighter, ease: 'strike' for a hit. clash: [x, y] sparks where the blades meet when the beat
+  // ends. cut: { victim, at, by, after } cuts that clock along fighter by's blade (pointing at at),
+  // after seconds into the beat.
+  function saberFight() {
+    const beats = [], steps = [0, 0];
+    let t = 0;
+    const hilt = i => [FIGHTERS[i][0] + 0.5 + (i ? -steps[i] : steps[i]), 1.5];
+    // fighter i's local angle on screen: 0 points at the other fighter, negative is up
+    const deg = (i, a) => i ? 180 - a : a;
+    const go = (i, step) => (steps[i] = step);
+    // a beat with move am for fighter a and bm for the other one
+    const add = (d, a, am, bm, extra = {}, pause = rand(0.05, 0.25)) => {
+      const b = { t, d, ...extra };
+      if (am) b[a ? 'red' : 'blue'] = am;
+      if (bm) b[a ? 'blue' : 'red'] = bm;
+      beats.push(b);
+      t += d + pause;
+    };
+    // where the blades meet: between the hilts, a little toward a's opponent, dy below the middle
+    // (less if that is out of reach)
+    const spot = (a, dy) => {
+      const [ax] = hilt(a), [bx] = hilt(1 - a), far = Math.abs(bx - ax) * 0.58;
+      const most = Math.sqrt(Math.max(0, SABER_REACH ** 2 - far ** 2));
+      return [ax + (bx - ax) * 0.58, 1.5 + Math.max(-most, Math.min(most, dy))];
+    };
+
+    // a wind-up, then a strike high or low that the other fighter parries
+    const strike = a => {
+      const o = 1 - a, up = Math.random() < 0.5 ? -1 : 1;
+      add(rand(0.3, 0.45), a, { deg: deg(a, up * rand(95, 130)), step: go(a, rand(0.2, 0.5)) },
+        { deg: deg(o, up * rand(20, 50)), step: go(o, rand(0, 0.3)) });
+      const p = spot(a, up * rand(0.15, 0.5));
+      add(rand(0.18, 0.25), a, { at: p, ease: 'strike' }, { at: p }, { clash: p });
+    };
+    // draw back, lunge, parried; then back off
+    const thrust = a => {
+      const o = 1 - a;
+      add(rand(0.25, 0.35), a, { deg: deg(a, rand(-15, 15)), step: go(a, 0) }, { deg: deg(o, rand(-30, 30)) });
+      go(a, rand(0.6, 0.9));
+      go(o, rand(-0.2, 0.1));
+      const p = spot(a, rand(-0.2, 0.2));
+      add(0.2, a, { at: p, step: steps[a], ease: 'strike' }, { at: p, step: steps[o] }, { clash: p });
+      add(rand(0.3, 0.4), a, { deg: deg(a, rand(-40, -10)), step: go(a, rand(0, 0.3)) }, { deg: deg(o, rand(-40, -10)) });
+    };
+    // both step in, blades locked and grinding, then push apart
+    const lock = () => {
+      go(0, rand(0.5, 0.7));
+      go(1, rand(0.5, 0.7));
+      const p = spot(Math.random() < 0.5 ? 0 : 1, rand(-0.3, 0.1));
+      add(0.35, 0, { at: p, step: steps[0] }, { at: p, step: steps[1] }, { clash: p }, 0);
+      for (let n = 3 + Math.floor(Math.random() * 3); n > 0; n--) {
+        const q = [p[0] + rand(-0.12, 0.12), p[1] + rand(-0.1, 0.1)];
+        add(0.2, 0, { at: q }, { at: q }, n % 2 ? {} : { clash: q }, 0);
+      }
+      add(0.3, 0, { deg: deg(0, rand(-40, -20)), step: go(0, 0.1) }, { deg: deg(1, rand(-40, -20)), step: go(1, 0.1) });
+    };
+    // the other fighter dodges and the swing cuts a clock above or below the fight
+    const missed = new Set();
+    const miss = a => {
+      const o = 1 - a, [fx] = FIGHTERS[a];
+      const victims = [0, 2].flatMap(y => [fx - 1, fx, fx + 1].map(x => grid[y][x])).filter(c => !missed.has(c));
+      const victim = randomFrom(victims);
+      missed.add(victim);
+      const up = victim.y ? 1 : -1;
+      add(rand(0.3, 0.4), a, { deg: deg(a, -up * rand(60, 100)), step: go(a, rand(0.1, 0.4)) },
+        { deg: deg(o, rand(-40, -10)), step: go(o, rand(-0.3, -0.1)) });
+      const at = [victim.x + 0.5, victim.y + 0.5], d = rand(0.22, 0.3);
+      add(d, a, { at, ease: 'strike' }, null, { cut: { victim, at, by: a, after: d * 0.85 } });
+    };
+
+    add(1, 0, { deg: deg(0, rand(-50, -30)) }, { deg: deg(1, rand(-50, -30)) }, {}, 0.3); // en garde
+    const moves = [strike, strike, strike, thrust, thrust, miss, lock];
+    let a = Math.random() < 0.5 ? 0 : 1, locked = false, misses = 0;
+    while (t < SABER_FIGHT) {
+      const move = randomFrom(moves);
+      if ((move === lock && locked) || (move === miss && misses === 2)) continue;
+      if (move === lock) locked = true;
+      if (move === miss) misses++;
+      if (Math.random() < 0.65) a = 1 - a; // mostly taking turns
+      move(a);
+    }
+    // the winner knocks the other blade up and strikes
+    const w = Math.random() < 0.5 ? 0 : 1, l = 1 - w;
+    add(0.3, w, { deg: deg(w, rand(-75, -50)), step: go(w, rand(0.3, 0.5)) },
+      { deg: deg(l, rand(-85, -60)), step: go(l, rand(0.2, 0.4)) }, {}, 0.05);
+    const at = [hilt(l)[0], 1.5 + rand(0.1, 0.3)];
+    add(0.2, w, { at, step: go(w, 0.9), ease: 'strike' }, null,
+      { cut: { victim: grid[FIGHTERS[l][1]][FIGHTERS[l][0]], at, by: w, after: 0.12 } }, 0.45);
+    add(0.5, w, { deg: deg(w, -40), step: go(w, 0) }, { step: go(l, 0) }, {}, 0.3); // the loser is down
+    return { beats, end: t };
+  }
+
+  function spark(x, y) {
+    const r = box(root), s = cellSize();
+    const el = document.createElement('div');
+    el.className = 'spark';
+    el.style.left = r.left + x * s + 'px';
+    el.style.top = r.top + y * s + 'px';
+    stage.append(el);
+    el.animate([
+      { opacity: 1, transform: 'translate(-50%, -50%) scale(0.2)' },
+      { opacity: 0, transform: 'translate(-50%, -50%) scale(1.5)' },
+    ], { duration: 400, easing: 'ease-out' }).onfinish = () => el.remove();
+  }
+
+  // Slice a clock in two along deg: two clipped copies of its face drift apart and fall while the
+  // face itself is hidden, then it grows back. Not tied to the show's gen, so it always comes back.
+  function cut(clock, deg) {
+    const r = box(clock.face), s = cellSize();
+    const a = deg * Math.PI / 180, dx = Math.cos(a), dy = Math.sin(a);
+    // a point u along the cut and v across it, far outside the face (polygon percentages)
+    const at = (u, v) => `${50 + (dx * u - dy * v) * 150}% ${50 + (dy * u + dx * v) * 150}%`;
+    for (const side of [1, -1]) {
+      const half = clock.face.cloneNode(true);
+      half.querySelectorAll('.hand').forEach(h => { h.style.transition = 'none'; });
+      Object.assign(half.style, { // the rect already includes a fighter's step
+        position: 'absolute', left: r.left + 'px', top: r.top + 'px', margin: '0', translate: 'none', transition: 'none',
+        zIndex: 3, pointerEvents: 'none',
+        clipPath: `polygon(${at(1, 0)}, ${at(-1, 0)}, ${at(-1, side)}, ${at(1, side)})`,
+      });
+      stage.append(half);
+      const nx = -dy * side * 0.3 * s, ny = dx * side * 0.3 * s;
+      half.animate([
+        { transform: 'none', opacity: 1 },
+        { transform: `translate(${nx}px, ${ny + s}px) rotate(${side * 25}deg)`, opacity: 0 },
+      ], { duration: 1100, easing: 'ease-in' }).onfinish = () => half.remove();
+    }
+    const g = box(root);
+    spark((r.left + r.width / 2 - g.left) / s, (r.top + r.height / 2 - g.top) / s);
+    clock.face.style.opacity = 0;
+    setTimeout(() => {
+      clock.face.style.opacity = '';
+      clock.face.animate([{ transform: 'scale(0)' }, { transform: 'scale(1)' }],
+        { duration: 500, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+    }, 1200);
+  }
+
+  // A fighter goes back to being a plain clock (end of the duel, or a cancelled one).
+  function leaveDuel(clock) {
+    clock.dueling = false;
+    clock.hour.classList.remove('tucked'); // the hilt
+    clock.face.style.translate = clock.face.style.transition = clock.face.style.zIndex = clock.face.style.background = '';
+    clock.face.style.removeProperty('--glow');
+  }
+
+  // Returns how long the duel takes in seconds.
+  function saberDuel(gen) {
+    const fighters = FIGHTERS.map(([x, y]) => grid[y][x]);
+    const crowd = digits.flat().filter(c => !fighters.includes(c));
+    const steps = [0, 0];
+    const later = (s, fn) => setTimeout(() => { if (gen === showGen) fn(); }, s * 1000);
+    const { beats, end } = saberFight();
+    // where a fighter's hilt (its clock's center) is
+    const hilt = i => [fighters[i].x + 0.5 + (i ? -steps[i] : steps[i]), 1.5];
+    const watch = ([x, y], duration) => crowd.forEach(c => {
+      const deg = Math.atan2(y - (c.y + 0.5), x - (c.x + 0.5)) * 180 / Math.PI;
+      turnTo(c, deg, deg, { path: 'shortest', duration, ease: SHOW_EASE, delay: 0 });
+    });
+    const move = (i, m, d) => {
+      const f = fighters[i];
+      if (m.step !== undefined) {
+        steps[i] = m.step;
+        f.face.style.transition = `translate ${d}s ${SHOW_EASE}`;
+        f.face.style.translate = `calc(var(--s) * ${i ? -m.step : m.step}) 0`;
+      }
+      if (m.deg === undefined && !m.at) return;
+      const [hx, hy] = hilt(i);
+      const deg = m.at ? Math.atan2(m.at[1] - hy, m.at[0] - hx) * 180 / Math.PI : m.deg;
+      turnTo(f, deg, deg, { path: 'shortest', duration: d, ease: m.ease === 'strike' ? STRIKE_EASE : SHOW_EASE, delay: 0 });
+    };
+
+    digits.flat().forEach(c => c.face.classList.remove('blank'));
+    fighters.forEach((c, i) => {
+      freezeHands(c);
+      c.dueling = true;
+      c.face.style.zIndex = 2; // the blades go over the clocks between the fighters
+      c.face.style.background = 'transparent'; // and the other fighter's face doesn't hide them
+      c.face.style.setProperty('--glow', i === 0 ? 'var(--saber-a)' : 'var(--saber-b)');
+    });
+    later(1, () => fighters.forEach(c => { c.minute.classList.add('saber'); c.hour.classList.add('tucked'); }));
+    for (const beat of beats) {
+      later(beat.t, () => {
+        if (beat.blue) move(0, beat.blue, beat.d);
+        if (beat.red) move(1, beat.red, beat.d);
+        const [bx] = hilt(0), [rx] = hilt(1);
+        watch(beat.clash || beat.cut?.at || [(bx + rx) / 2, 1.5], beat.d);
+      });
+      if (beat.clash) later(beat.t + beat.d, () => {
+        spark(...beat.clash);
+        fighters.forEach(c => c.minute.classList.add('clash'));
+        later(0.12, () => fighters.forEach(c => c.minute.classList.remove('clash')));
+      });
+      if (beat.cut) later(beat.t + beat.cut.after, () => {
+        const { victim, at: [vx, vy], by } = beat.cut;
+        const [hx, hy] = hilt(by);
+        cut(victim, Math.atan2(vy - hy, vx - hx) * 180 / Math.PI);
+        if (fighters.includes(victim)) { victim.minute.classList.remove('saber'); victim.hour.classList.remove('tucked'); }
+      });
+    }
+    later(end, () => fighters.forEach(c => { c.minute.classList.remove('saber'); c.hour.classList.remove('tucked'); }));
+    return end + 1; // the loser has grown back; the hold ends and the time lands
+  }
+
+  // ---- tron ----
+  // The Tron crazy show: two light cycles, cyan and orange, race over the clock centers and turn only
+  // at right angles. The light wall behind them is made of the hands: the clock a cycle leaves
+  // points its minute hand at the next one and stretches it there (like a magnet reach), glowing in
+  // the cycle's color; the hour hand stays a dot. All other hands shrink to dots, the rims become a
+  // faint grid. A cycle that can't go on (wall, a trail, or the other cycle got the cell first)
+  // derezzes into pixels and its trail flickers out; the winner rides on for a few cells.
+  // The race is worked out first (raceCycles()), so its length is known up front.
+  const TRON_START = 0.8; // hands shrunk, the cycles appear
+  const TRON_STEP = 0.32; // seconds per cell
+  const TRON_LAP = 5;     // cells the winner rides on after the other one crashed
+  let tronOn = false;
+
+  // Each cycle's path of [x, y] cells; crash: it derezzes at the end, bump: the way it wanted to go.
+  function raceCycles() {
+    const taken = new Set(), key = (x, y) => x + y * 8;
+    const free = (x, y) => x >= 0 && x < 8 && y >= 0 && y < 3 && !taken.has(key(x, y));
+    const cycles = [0, 1].map(i => ({ i, x: i ? 7 : 0, y: Math.floor(Math.random() * 3), dx: i ? -1 : 1, dy: 0, path: [] }));
+    const ride = (c, { dx, dy }) => {
+      c.dx = dx; c.dy = dy; c.x += dx; c.y += dy;
+      c.path.push([c.x, c.y]);
+      taken.add(key(c.x, c.y));
+    };
+    cycles.forEach(c => { c.path.push([c.x, c.y]); taken.add(key(c.x, c.y)); });
+    // a free cell straight on, left or right: straight on is likelier, dead ends rarely
+    const steer = c => {
+      const options = [];
+      [[c.dx, c.dy], [c.dy, -c.dx], [-c.dy, c.dx]].forEach(([dx, dy], n) => {
+        const x = c.x + dx, y = c.y + dy;
+        if (!free(x, y)) return;
+        const room = Object.values(DIRS).filter(([ex, ey]) => free(x + ex, y + ey)).length;
+        options.push({ dx, dy, w: (n ? 1 : 2.5) * (room ? room + 0.5 : 0.1) });
+      });
+      let r = Math.random() * options.reduce((sum, o) => sum + o.w, 0);
+      return options.find(o => (r -= o.w) <= 0) ?? options[0];
+    };
+    let racing = cycles;
+    while (racing.length === 2) {
+      const moves = racing.map(steer);
+      const [m0, m1] = moves, [c0, c1] = racing;
+      if (m0 && m1 && c0.x + m0.dx === c1.x + m1.dx && c0.y + m0.dy === c1.y + m1.dy) {
+        const n = Math.random() < 0.5 ? 0 : 1; // both want the same cell: one gets it
+        racing[n].crash = true;
+        racing[n].bump = [moves[n].dx, moves[n].dy];
+        moves[n] = null;
+      }
+      racing.forEach((c, n) => {
+        if (moves[n]) return ride(c, moves[n]);
+        c.crash = true;
+        c.bump ??= [c.dx, c.dy];
+      });
+      racing = racing.filter(c => !c.crash);
+    }
+    for (const c of racing) { // the winner's lap
+      for (let n = 0; n < TRON_LAP; n++) {
+        const m = steer(c);
+        if (!m) break;
+        ride(c, m);
+      }
+    }
+    return cycles;
+  }
+
+  // Returns how long the race takes in seconds.
+  function lightCycles(gen) {
+    const later = (s, fn) => setTimeout(() => { if (gen === showGen) fn(); }, s * 1000);
+    const r = box(root), s = cellSize();
+    const pos = (x, y) => `${r.left + x * s}px ${r.top + y * s}px`; // a spot in grid cells
+    const cycles = raceCycles();
+    tronOn = true;
+    root.classList.add('tron');
+    for (const c of digits.flat()) {
+      c.face.classList.remove('blank');
+      for (const h of [c.hour, c.minute]) {
+        h.style.transition = 'width 0.5s ease, opacity 0.5s ease';
+        h.classList.add('tucked');
+      }
+    }
+    // a trail goes out: its hands flicker and shrink back to dots
+    const flicker = clock => {
+      for (const h of [clock.hour, clock.minute]) {
+        if (!h.classList.contains('trail')) continue;
+        const a = h.animate([{ opacity: 1 }, { opacity: 0.2 }, { opacity: 1 }, { opacity: 0 }], { duration: 300, fill: 'forwards' });
+        a.onfinish = () => {
+          if (gen === showGen) {
+            h.style.transition = 'none';
+            h.classList.remove('trail', 'reach');
+            h.classList.add('tucked');
+          }
+          a.cancel();
+        };
+      }
+    };
+    const derez = (head, x, y, color) => {
+      for (let n = 0; n < 14; n++) {
+        const p = document.createElement('div');
+        p.className = 'pixel';
+        p.style.setProperty('--trail', color);
+        p.style.translate = pos(x, y);
+        stage.append(p);
+        const a = rand(0, 2 * Math.PI), d = rand(0.15, 0.6) * s;
+        p.animate([
+          { transform: 'none', opacity: 1 },
+          { transform: `translate(${Math.cos(a) * d}px, ${Math.sin(a) * d}px) rotate(${rand(-180, 180)}deg)`, opacity: 0 },
+        ], { duration: rand(500, 900), easing: 'ease-out' }).onfinish = () => p.remove();
+      }
+      spark(x, y);
+      head.remove();
+    };
+
+    let end = 0;
+    for (const cy of cycles) {
+      const color = cy.i ? 'var(--tron-b)' : 'var(--tron-a)';
+      const head = document.createElement('div');
+      head.className = 'cycle';
+      head.style.setProperty('--trail', color);
+      head.style.translate = pos(cy.path[0][0] + 0.5, cy.path[0][1] + 0.5);
+      head.style.rotate = cy.i ? '180deg' : '0deg';
+      head.style.opacity = 0;
+      head.style.transition = `translate ${TRON_STEP}s linear, opacity 0.4s ease`;
+      stage.append(head);
+      // the cell's hour hand becomes a dot in the trail's color
+      const mark = ([x, y]) => {
+        grid[y][x].face.style.setProperty('--trail', color);
+        grid[y][x].hour.classList.add('trail');
+      };
+      later(TRON_START - 0.4, () => { head.style.opacity = 1; mark(cy.path[0]); });
+      cy.path.forEach(([x, y], k) => {
+        const next = cy.path[k + 1];
+        if (!next) return;
+        later(TRON_START + k * TRON_STEP, () => {
+          const clock = grid[y][x], m = clock.minute;
+          const deg = Math.atan2(next[1] - y, next[0] - x) * 180 / Math.PI;
+          clock.minuteDeg = deg;
+          m.style.transition = `width ${TRON_STEP}s linear, opacity 0.5s ease`;
+          m.style.transform = `rotate(${deg}deg)`;
+          m.classList.remove('tucked');
+          m.classList.add('reach', 'trail');
+          head.style.rotate = deg + 'deg';
+          head.style.translate = pos(next[0] + 0.5, next[1] + 0.5);
+          later(TRON_STEP, () => mark(next));
+        });
+      });
+      const [lx, ly] = cy.path[cy.path.length - 1];
+      const stop = TRON_START + (cy.path.length - 1) * TRON_STEP;
+      if (cy.crash) {
+        const [bx, by] = cy.bump, hit = [lx + 0.5 + bx * 0.3, ly + 0.5 + by * 0.3];
+        later(stop, () => {
+          head.style.rotate = Math.atan2(by, bx) * 180 / Math.PI + 'deg';
+          head.style.transition = `translate ${TRON_STEP * 0.4}s ease-in`;
+          head.style.translate = pos(...hit);
+        });
+        later(stop + TRON_STEP * 0.4, () => derez(head, ...hit, color));
+      } else {
+        later(stop, () => { head.style.opacity = 0; });
+      }
+      // the trail goes out, back along the path
+      const out = stop + 0.5;
+      cy.path.slice().reverse().forEach(([x, y], j) => later(out + j * 0.06, () => flicker(grid[y][x])));
+      end = Math.max(end, out + cy.path.length * 0.06 + 0.4);
+    }
+    return end + 0.3;
+  }
+
+  // ---- shows that build the time ----
+  // Tron 2 and Matrix build the new time out of their effect and land on it without turning a hand:
+  // settle() leaves every hand in its pose and sets landedOn, so showTime() for that time turns
+  // nothing (setPose(…, still)) and, with Magnet on, links the hands at once (linkHands(true)).
+  const SETTLE_SECONDS = 1.2; // the hands cool to white
+  let landedOn = null;
+
+  // clock → its pose in the time hhmm
+  function posesOf(hhmm) {
+    const poses = new Map();
+    digits.forEach((cs, d) => cs.forEach((c, i) => poses.set(c, DIGITS[+hhmm[d]][i])));
+    return poses;
+  }
+
+  // Turn a clock's hands to a pose at once, while nobody can see them (their transition must not
+  // include transform).
+  function poseNow(clock, pose) {
+    if (isBlank(pose)) return;
+    poseAngles(pose).forEach((deg, i) => {
+      const key = i ? 'minuteDeg' : 'hourDeg';
+      clock[key] = PATHS.shortest.next(clock[key], deg);
+      (i ? clock.minute : clock.hour).style.transform = `rotate(${clock[key]}deg)`;
+    });
+  }
+
+  // The hands cool to white and become the time: with Magnet on, linked where they join, the rest at
+  // full length; blank faces fade out.
+  function settle(hhmm, poses) {
+    const clocks = digits.flat();
+    clocks.forEach(c => { c.pose = poses.get(c); }); // all of them first: handLinks() looks at neighbors
+    for (const c of clocks) {
+      const blank = isBlank(c.pose);
+      c.face.classList.toggle('blank', blank);
+      for (const h of [c.hour, c.minute]) {
+        h.style.transition = `width 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 2s ease, ` +
+          `background-color ${SETTLE_SECONDS}s ease, box-shadow ${SETTLE_SECONDS}s ease`;
+        h.classList.remove('trail', 'code');
+        if (!blank) h.classList.remove('tucked', 'reach'); // blank ones stay dots while they fade
+      }
+      if (settings.magnet === 'on') for (const { hand, cls } of handLinks(c)) hand.classList.add(cls);
+    }
+    landedOn = hhmm;
+  }
+
+  // ---- tron 2 ----
+  // The Tron 2 crazy show: light cycles ride the strokes of the time's digits and their light walls
+  // are the hands in the time's pose, so the trails spell the time. One cycle per stroke group starts
+  // at an end and splits where a stroke forks, so every stroke is drawn once. Then the walls cool to
+  // white and stay (settle()).
+  const TRON2_STEP = 0.5; // seconds per stroke
+
+  // Returns how long the show takes in seconds.
+  function traceTime(gen) {
+    const later = (s, fn) => setTimeout(() => { if (gen === showGen) fn(); }, s * 1000);
+    const r = box(root), s = cellSize();
+    const pos = c => `${r.left + (c.x + 0.5) * s}px ${r.top + (c.y + 0.5) * s}px`;
+    const hhmm = shown ?? '0000';
+    const clocks = digits.flat(), poses = posesOf(hhmm);
+    // each clock's hands in the new pose: element, screen angle, used for a wall yet
+    const hands = new Map(clocks.map(c => [c, isBlank(poses.get(c)) ? []
+      : poseAngles(poses.get(c)).map((deg, i) => ({ el: i ? c.minute : c.hour, deg, used: false }))]));
+    const neighbor = (c, deg) => {
+      const n = grid[c.y + DIRS[deg][1]]?.[c.x + DIRS[deg][0]];
+      return n && hands.get(n).length ? n : null;
+    };
+    // the strokes: two clocks are joined where one of them points at the other
+    const adj = new Map(clocks.map(c => [c, []]));
+    const joined = new Set();
+    for (const c of clocks) {
+      for (const { deg } of hands.get(c)) {
+        const n = neighbor(c, deg), key = n && [c, n].map(k => k.x + k.y * 8).sort((a, b) => a - b).join();
+        if (!n || joined.has(key)) continue;
+        joined.add(key);
+        adj.get(c).push({ other: n, key });
+        adj.get(n).push({ other: c, key });
+      }
+    }
+
+    // Ride every stroke once, breadth first from an end of each group: heads[] with their moves.
+    const heads = [], reached = new Set(), drawn = new Set();
+    for (const first of clocks) {
+      if (!hands.get(first).length || reached.has(first)) continue;
+      const group = [first];
+      reached.add(first);
+      for (let i = 0; i < group.length; i++) {
+        for (const { other } of adj.get(group[i])) if (!reached.has(other)) { reached.add(other); group.push(other); }
+      }
+      const ends = group.filter(c => adj.get(c).length === 1);
+      const start = randomFrom(ends.length ? ends : group);
+      const color = Math.floor(start.x / 2) % 2 ? 'var(--tron-b)' : 'var(--tron-a)';
+      const t0 = TRON_START + rand(0, 0.4);
+      const newHead = (at, t) => { const h = { at, t, color, moves: [], end: t }; heads.push(h); return h; };
+      const seen = new Set([start]);
+      const queue = [[start, t0, newHead(start, t0)]];
+      while (queue.length) {
+        const [c, t, head] = queue.shift();
+        const out = adj.get(c).filter(e => !drawn.has(e.key));
+        out.forEach((e, k) => {
+          drawn.add(e.key);
+          const h = k ? newHead(c, t) : head; // a fork: another cycle splits off
+          h.moves.push({ from: c, to: e.other, t });
+          h.end = t + TRON2_STEP;
+          if (!seen.has(e.other)) { seen.add(e.other); queue.push([e.other, t + TRON2_STEP, h]); }
+        });
+      }
+    }
+    const done = Math.max(...heads.map(h => h.end));
+
+    tronOn = true;
+    root.classList.add('tron');
+    for (const c of clocks) {
+      c.face.classList.remove('blank');
+      for (const h of [c.hour, c.minute]) {
+        h.style.transition = 'width 0.5s ease, opacity 0.5s ease';
+        h.classList.add('tucked');
+      }
+    }
+    // the dots turn to the new pose while nobody can see it
+    later(TRON_START - 0.1, () => clocks.forEach(c => poseNow(c, poses.get(c))));
+    const light = (c, color) => {
+      c.face.style.setProperty('--trail', color);
+      c.hour.classList.add('trail');
+      c.minute.classList.add('trail');
+    };
+    // a wall from clock a to b: a's hand that points at b grows out of a, or else b's hand that points
+    // at a is revealed from its tip (the right end of its box) back to b
+    const wall = (a, b, color) => {
+      const toward = (c, n) => hands.get(c).find(h => !h.used && neighbor(c, h.deg) === n);
+      const fwd = toward(a, b), own = fwd || toward(b, a);
+      if (!own) return;
+      own.used = true;
+      const back = fwd && toward(b, a);
+      if (back) back.used = true; // stays a dot under the wall
+      light(own === fwd ? a : b, color);
+      own.el.style.transition = 'opacity 0.5s ease';
+      own.el.classList.remove('tucked');
+      own.el.classList.add('reach');
+      own.el.animate([{ clipPath: fwd ? 'inset(0 100% 0 0)' : 'inset(0 0 0 100%)' }, { clipPath: 'inset(0)' }],
+        { duration: TRON2_STEP * 1000, easing: 'linear' });
+    };
+    for (const h of heads) {
+      const el = document.createElement('div');
+      el.className = 'cycle';
+      el.style.setProperty('--trail', h.color);
+      el.style.translate = pos(h.at);
+      el.style.opacity = 0;
+      el.style.transition = `translate ${TRON2_STEP}s linear, opacity 0.3s ease`;
+      if (h.moves.length) {
+        const [{ from, to }] = h.moves;
+        el.style.rotate = Math.atan2(to.y - from.y, to.x - from.x) * 180 / Math.PI + 'deg';
+      }
+      stage.append(el);
+      later(h.t - 0.3, () => { el.style.opacity = 1; light(h.at, h.color); });
+      for (const { from, to, t } of h.moves) {
+        later(t, () => {
+          el.style.rotate = Math.atan2(to.y - from.y, to.x - from.x) * 180 / Math.PI + 'deg';
+          el.style.translate = pos(to);
+          wall(from, to, h.color);
+        });
+        later(t + TRON2_STEP, () => light(to, h.color));
+      }
+      later(h.end, () => { el.style.opacity = 0; });
+    }
+    later(done + 0.2, () => {
+      root.classList.remove('tron');
+      settle(hhmm, poses);
+    });
+    return done + 0.2 + SETTLE_SECONDS;
+  }
+
+  // Remove what the Tron shows left behind (end of the race, or a cancelled one).
+  function clearTron() {
+    if (!tronOn) return;
+    tronOn = false;
+    root.classList.remove('tron');
+    stage.querySelectorAll('.cycle, .pixel').forEach(el => el.remove());
+    for (const c of digits.flat()) {
+      c.face.style.removeProperty('--trail');
+      for (const h of [c.hour, c.minute]) {
+        h.getAnimations().forEach(a => a.cancel());
+        h.classList.remove('trail', 'tucked', 'reach');
+      }
+    }
+  }
+
+  // ---- matrix ----
+  // The Matrix crazy show: green code rain falls inside every face and builds the hands of the new
+  // time: a face is a grid of small glyph cells, and where a stream's head passes a cell on one of
+  // the clock's hands (in the new pose), that glyph may lock there, bright, while the rain goes on
+  // around it. When all of a clock's hand cells are locked they flash, the solid green hand fades in
+  // and the glyphs dissolve. Blank faces only get rain. Then the rain runs out and the hands cool to
+  // white as the time (settle()). The rain is one canvas over the clock, drawn only in the cells
+  // inside the faces and never cleared: once per MATRIX_TICK it fades a little and each stream draws
+  // only its head and the cell it leaves (glyphs copied from prerendered strips), so the tails are
+  // long and cheap (the Pi). The canvas is mirrored, so the glyphs are too, as in the film.
+  // half-width katakana as in the film, with digits and a few symbols (the Pi has them in Droid Sans
+  // Fallback)
+  const MATRIX_GLYPHS = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789Z:."=*+-<>|';
+  const MATRIX_FONT = '"MS Gothic", "Yu Gothic", "Noto Sans Mono CJK JP", "Droid Sans Fallback", monospace';
+  const MATRIX_ROWS = 15;            // glyph rows (and columns) per face; odd, so one runs through the center
+  const MATRIX_MIN_PX = 9;           // smallest glyph row in px: small screens (the Pi's) get fewer rows
+  const MATRIX_TICK = 0.05;          // seconds per glyph step
+  const MATRIX_FADE = 0.08;          // share of its brightness every glyph loses per tick: the tails
+  const MATRIX_TAIL = 30;            // ticks until a tail has faded out (0.92^30 ≈ 0.08)
+  const MATRIX_STOP = 5;             // no new streams after this
+  // chance that a passing head locks a hand cell: none at first, certain by MATRIX_STOP - 0.7
+  const matrixLock = t => Math.min(1, Math.max(0, (t - 0.8) / (MATRIX_STOP - 1.5)));
+  let matrix = null;                 // { canvas, timer } while the show plays
+
+  // The grid of glyph cells for the current clock size; gw × gh is a cell.
+  function matrixGrid() {
+    const s = cellSize();
+    const most = Math.floor(s / MATRIX_MIN_PX);
+    const rows = Math.min(MATRIX_ROWS, most % 2 ? most : most - 1);
+    return { s, rows, cols: rows, gw: s / rows, gh: s / rows, dpr: devicePixelRatio || 1 };
+  }
+
+  // The glyphs are drawn once into sprite strips: plain green, the bright head and bold white for
+  // locked cells; copying them is much cheaper than fillText on the Pi. The strips are kept for the
+  // next show and first made while the page is idle after loading (below): the first use of the CJK
+  // fallback font froze the Pi for most of a second when it happened as the show started.
+  let matrixStrips = null;
+  function matrixSprites({ gw, gh, dpr }) {
+    const key = `${gw} ${gh} ${dpr}`;
+    if (matrixStrips?.key === key) return matrixStrips;
+    const sprite = (color, weight) => {
+      const w = Math.ceil(gw * dpr), h = Math.ceil(gh * dpr);
+      const strip = document.createElement('canvas');
+      strip.width = w * MATRIX_GLYPHS.length;
+      strip.height = h;
+      const sc = strip.getContext('2d');
+      sc.font = `${weight} ${Math.round(gh * dpr)}px ${MATRIX_FONT}`; // as tall as a row: the glyphs nearly touch
+      sc.textAlign = 'center';
+      sc.textBaseline = 'middle';
+      sc.fillStyle = color;
+      [...MATRIX_GLYPHS].forEach((ch, i) => sc.fillText(ch, (i + 0.5) * w, h / 2));
+      return { strip, w, h };
+    };
+    const green = getComputedStyle(stage).getPropertyValue('--matrix').trim();
+    return matrixStrips = {
+      key, GREEN: sprite(green, 'normal'), HEAD: sprite('#b8ffc8', 'normal'), LOCKED: sprite('#ffffff', 'bold'),
+    };
+  }
+  if (!options.idle) (window.requestIdleCallback ?? setTimeout)(() => matrixSprites(matrixGrid()));
+
+  // Returns how long the show takes in seconds.
+  function matrixRain(gen) {
+    const later = (s, fn) => setTimeout(() => { if (gen === showGen) fn(); }, s * 1000);
+    const hhmm = shown ?? '0000', poses = posesOf(hhmm);
+    const clocks = digits.flat(), coded = clocks.filter(c => !isBlank(poses.get(c)));
+    const r = box(root);
+    const layout = matrixGrid(), { s, rows, cols, gw, gh, dpr } = layout;
+    const { GREEN, HEAD, LOCKED } = matrixSprites(layout);
+    const canvas = document.createElement('canvas');
+    canvas.className = 'matrix';
+    canvas.width = Math.round(8 * s * dpr);
+    canvas.height = Math.round(3 * s * dpr);
+    Object.assign(canvas.style, { left: r.left + 'px', top: r.top + 'px', width: 8 * s + 'px', height: 3 * s + 'px' });
+    stage.append(canvas);
+    const ctx = canvas.getContext('2d');
+    // mirrored: x is drawn at 8s - x, which mirrors the glyphs and puts them back in place
+    ctx.setTransform(-dpr, 0, 0, dpr, canvas.width, 0);
+    const green = getComputedStyle(stage).getPropertyValue('--matrix').trim();
+    const glyph = () => Math.floor(Math.random() * MATRIX_GLYPHS.length); // index into the strips
+    // draw a glyph over whatever faded glyph is still in its cell
+    const draw = (sp, i, x, y, alpha) => {
+      ctx.clearRect(x - gw / 2, y - gh / 2, gw, gh);
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(sp.strip, i * sp.w, 0, sp.w, sp.h, x - gw / 2, y - gh / 2, gw, gh);
+    };
+
+    const midCol = (cols - 1) / 2, midRow = (rows - 1) / 2;
+    const cellX = (c, col) => 8 * s - (c.x + (col + 0.5) / cols) * s; // mirrored
+    const cellY = (c, row) => (c.y + (row + 0.5) / rows) * s;
+    // No clip path (slow): only cells whose glyph fits in the face get drawn. spans[col] = its first
+    // and last row inside (first > last: none).
+    const radius = (s - settings.gap) / 2;
+    const inside = (col, row) =>
+      Math.hypot(Math.abs(col - midCol) * gw + gw * 0.35, Math.abs(row - midRow) * gh + gh * 0.4) <= radius;
+    const spans = Array.from({ length: cols }, (_, col) => {
+      let top = 0;
+      while (top <= midRow && !inside(col, top)) top++;
+      return [top, rows - 1 - top];
+    });
+
+    // each clock of the time: the cells its hands cover (center out to the rim along each hand), each
+    // null until a glyph locks there; left: how many are still empty; doneAt: when the last one locked
+    const builds = new Map(coded.map(c => {
+      const cells = new Map();
+      for (const deg of poseAngles(poses.get(c))) {
+        const [dx, dy] = DIRS[deg];
+        for (let k = 0; k <= (dx ? midCol : midRow); k++) {
+          const col = midCol + dx * k, row = midRow + dy * k;
+          if (inside(col, row)) cells.set(`${col},${row}`, null);
+        }
+      }
+      return [c, { cells, left: cells.size, doneAt: null }];
+    }));
+    // the clock's hand cells are all locked: they flash, its solid hands fade in in green
+    const built = (c, b) => {
+      b.doneAt = t;
+      c.face.classList.remove('blank');
+      c.hour.classList.add('code');
+      c.minute.classList.add('code');
+    };
+    const lockCell = (c, b, key, ch) => {
+      const [col, row] = key.split(',').map(Number);
+      b.cells.set(key, { ch, x: cellX(c, col), y: cellY(c, row) });
+      if (--b.left === 0) built(c, b);
+    };
+
+    // a stream: its clock and column, the rows it runs over, the row of its bright head (above top:
+    // still waiting above the face), the head's glyph and how bright its tail is
+    const streams = clocks.flatMap(c => spans.flatMap(([top, bottom], col) => top > bottom ? [] : [{
+      c, col, x: cellX(c, col), top, bottom, head: top - Math.floor(rand(0, 2 * rows)), ch: 0, glow: rand(0.6, 1),
+    }]));
+    let t = 0;
+    const timer = setInterval(() => {
+      t += MATRIX_TICK;
+      // everything fades a little: the tails
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.globalAlpha = MATRIX_FADE;
+      ctx.fillRect(0, 0, 8 * s, 3 * s);
+      ctx.globalCompositeOperation = 'source-over';
+      let falling = false;
+      const chance = matrixLock(t);
+      for (const st of streams) {
+        const b = builds.get(st.c); // none on a blank face
+        if (st.head < st.top && t > MATRIX_STOP) continue; // the rain stops: no new streams
+        st.head++;
+        if (st.head > st.top && st.head <= st.bottom + 1) { // the cell it leaves
+          draw(GREEN, st.ch, st.x, cellY(st.c, st.head - 1), st.glow);
+        }
+        if (st.head > st.bottom && t <= MATRIX_STOP) { // ran out of the face: again
+          st.glow = rand(0.6, 1);
+          // a column with empty hand cells comes back at once
+          const waiting = b?.left && [...b.cells].some(([key, v]) => !v && key.startsWith(st.col + ','));
+          st.head = waiting ? st.top : st.top - Math.floor(rand(0, rows));
+        }
+        if (st.head > st.bottom + MATRIX_TAIL) continue; // gone, its tail too
+        falling = true;
+        if (st.head < st.top || st.head > st.bottom) continue;
+        st.ch = glyph();
+        draw(HEAD, st.ch, st.x, cellY(st.c, st.head), 1);
+        const key = `${st.col},${st.head}`;
+        if (b?.cells.get(key) === null && Math.random() < chance) lockCell(st.c, b, key, st.ch);
+        // now and then a glyph in the tail changes
+        const row = st.head - 2 - Math.floor(Math.random() * 8);
+        if (row >= st.top && Math.random() < 0.1) draw(GREEN, glyph(), st.x, cellY(st.c, row), 0.4 * st.glow);
+      }
+      // the locked glyphs: bright, now and then changing; when the clock is built they flash white
+      // and dissolve over its solid hands
+      for (const [c, b] of builds) {
+        if (!b.doneAt && t > MATRIX_STOP - 0.4) { // safety net: finish it now
+          for (const [key, v] of b.cells) if (!v) lockCell(c, b, key, glyph());
+        }
+        const age = b.doneAt === null ? -1 : t - b.doneAt;
+        if (age > 0.8) continue;
+        const fade = age < 0.2 ? 1 : 1 - (age - 0.2) / 0.6;
+        const flash = age >= 0 && age < 0.2;
+        for (const cell of b.cells.values()) {
+          if (!cell) continue;
+          if (Math.random() < 0.03) cell.ch = glyph();
+          ctx.clearRect(cell.x - gw / 2, cell.y - gh / 2, gw, gh);
+          ctx.globalAlpha = fade * (flash ? 0.6 : 0.22); // a soft green block behind it: the hand's trace
+          ctx.fillStyle = flash ? '#ffffff' : green;
+          ctx.fillRect(cell.x - gw / 2, cell.y - gh / 2, gw, gh);
+          ctx.globalAlpha = fade;
+          ctx.drawImage(LOCKED.strip, cell.ch * LOCKED.w, 0, LOCKED.w, LOCKED.h,
+            cell.x - gw / 2, cell.y - gh / 2, gw, gh);
+        }
+      }
+      if (!falling) clearMatrix();
+    }, MATRIX_TICK * 1000);
+    matrix = { canvas, timer };
+
+    // the hands fade out and turn to the new pose while hidden; the time's rims turn green
+    for (const c of clocks) {
+      c.face.classList.add('blank');
+      for (const h of [c.hour, c.minute]) h.style.transition = 'opacity 0.5s ease, width 0.45s ease';
+    }
+    clocks.forEach(c => c.face.classList.add('coded'));
+    later(0.55, () => clocks.forEach(c => poseNow(c, poses.get(c))));
+    const cool = MATRIX_STOP + 0.3; // while the last streams run out
+    later(cool, () => {
+      clocks.forEach(c => c.face.classList.remove('coded'));
+      settle(hhmm, poses);
+    });
+    return cool + SETTLE_SECONDS;
+  }
+
+  // Remove the code rain and its green (end of the show, or a cancelled one).
+  function clearMatrix() {
+    if (!matrix) return;
+    clearInterval(matrix.timer);
+    matrix.canvas.remove();
+    matrix = null;
+    for (const c of digits.flat()) {
+      c.face.classList.remove('coded');
+      c.hour.classList.remove('code');
+      c.minute.classList.remove('code');
+    }
+  }
+
+  // ---- bougainvillea ----
+  // The Bougainvillea crazy show: the hands keep showing the time while a bougainvillea grows on the
+  // digits. Woody vines come up from the bottom of each digit and climb its strokes (two strands
+  // twining round the hands), thin shoots curl round the rims of the faces, leaves sprout behind the
+  // growing tips, then clusters of three magenta bracts round a small white flower pop open. At the
+  // end the bracts fall and sway and the plant fades. Drawn in an SVG layer (.bloom) whose viewBox is
+  // the 8×3 grid, so all sizes are in cells. Vines grow by revealing their stroke (stroke-dashoffset).
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const BLOOM_SPEED = 1.6;    // vine growth in cells per second
+  const BLOOM_FALL = 8.5;     // the bracts start to fall
+  const BLOOM_SECONDS = 12;
+  const BRACT_COLORS = ['#c2185b', '#d81b7a', '#e0218a', '#b5166b', '#d63384'];
+  const BRACT = 'M0 0C-0.05 -0.02 -0.065 -0.1 0 -0.12C0.065 -0.1 0.05 -0.02 0 0Z'; // one bract, pointing up
+  const LEAF = 'M0 0Q0.035 -0.03 0.09 0Q0.035 0.03 0 0Z';
+  let bloom = null; // the svg layer while the show plays
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const cosd = a => Math.cos(a * Math.PI / 180), sind = a => Math.sin(a * Math.PI / 180);
+
+  function svgEl(tag, attrs, parent) {
+    const el = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    parent.append(el);
+    return el;
+  }
+
+  function clearBloom() {
+    bloom?.remove();
+    bloom = null;
+  }
+
+  // A vine strand from a to b, waving round the straight line (amp cells, waves times).
+  function strand([ax, ay], [bx, by], waves, amp, phase) {
+    const len = Math.hypot(bx - ax, by - ay), nx = -(by - ay) / len, ny = (bx - ax) / len;
+    let d = '';
+    for (let i = 0; i <= 24; i++) {
+      const t = i / 24, w = amp * Math.sin(2 * Math.PI * waves * t + phase);
+      d += `${i ? 'L' : 'M'}${(ax + (bx - ax) * t + nx * w).toFixed(3)} ${(ay + (by - ay) * t + ny * w).toFixed(3)}`;
+    }
+    return d;
+  }
+
+  // A shoot curling round the rim of the face centered at (cx, cy), from angle a over sweep degrees.
+  function tendril(cx, cy, a, sweep) {
+    let d = '';
+    for (let i = 0; i <= 32; i++) {
+      const deg = a + sweep * i / 32, r = 0.46 + 0.012 * Math.sin(i * 1.3);
+      d += `${i ? 'L' : 'M'}${(cx + r * cosd(deg)).toFixed(3)} ${(cy + r * sind(deg)).toFixed(3)}`;
+    }
+    return d;
+  }
+
+  function bougainvillea() {
+    const r = box(root), s = cellSize();
+    bloom = document.createElementNS(SVG_NS, 'svg');
+    bloom.setAttribute('class', 'bloom');
+    bloom.setAttribute('viewBox', '0 0 8 3');
+    Object.assign(bloom.style, { left: r.left + 'px', top: r.top + 'px', width: 8 * s + 'px', height: 3 * s + 'px' });
+    stage.append(bloom);
+    const plant = svgEl('g', {}, bloom), bracts = svgEl('g', {}, bloom);
+
+    const leaf = (x, y, deg, t) => {
+      const g = svgEl('g', { transform: `translate(${x} ${y}) rotate(${deg})` }, plant);
+      svgEl('path', { d: LEAF, class: 'leaf' }, g)
+        .animate([{ transform: 'scale(0)' }, { transform: 'scale(1)' }], { duration: 400, delay: t * 1000, easing: 'ease-out', fill: 'backwards' });
+    };
+    const flower = (x, y, t) => {
+      const pop = svgEl('g', {}, svgEl('g', { transform: `translate(${x} ${y}) scale(${rand(0.8, 1.25)})` }, bracts));
+      pop.animate([{ transform: 'scale(0)' }, { transform: 'scale(1.15)', offset: 0.7 }, { transform: 'scale(1)' }],
+        { duration: 500, delay: t * 1000, easing: 'ease-out', fill: 'backwards' });
+      const color = BRACT_COLORS[Math.floor(Math.random() * BRACT_COLORS.length)], base = rand(0, 120);
+      for (let k = 0; k < 3; k++) {
+        const fall = svgEl('g', {}, pop);
+        fall.style.transformBox = 'fill-box';
+        fall.style.transformOrigin = 'center';
+        svgEl('path', { d: BRACT, fill: color, transform: `rotate(${base + k * 120})` }, fall);
+        if (k === 0) svgEl('circle', { r: 0.014, class: 'blossom' }, fall); // the small white flower
+        // falls below the grid, swaying
+        const dx = rand(-0.4, 0.4), dy = 3.6 - y;
+        fall.animate([
+          { transform: 'translate(0px, 0px) rotate(0deg)', opacity: 1 },
+          { transform: `translate(${dx * 0.4}px, ${dy * 0.3}px) rotate(${rand(-90, 90)}deg)`, opacity: 1, offset: 0.3 },
+          { transform: `translate(${-dx * 0.3}px, ${dy * 0.65}px) rotate(${rand(-180, 180)}deg)`, opacity: 0.9, offset: 0.65 },
+          { transform: `translate(${dx}px, ${dy}px) rotate(${rand(-270, 270)}deg)`, opacity: 0 },
+        ], { duration: rand(1.4, 2) * 1000, delay: (BLOOM_FALL + rand(0, 1.3)) * 1000, easing: 'ease-in', fill: 'forwards' });
+      }
+    };
+    // Grow a vine or shoot from start for dur seconds, with leaves and flowers along it (bare: none,
+    // for the second strand of a twining pair; it keeps the element count down for the Pi).
+    const grow = (d, cls, start, dur, bare = false) => {
+      const path = svgEl('path', { d, class: cls }, plant);
+      const len = path.getTotalLength();
+      path.style.strokeDasharray = len;
+      path.style.strokeDashoffset = len;
+      path.animate([{ strokeDashoffset: len }, { strokeDashoffset: 0 }],
+        { duration: dur * 1000, delay: start * 1000, easing: 'linear', fill: 'forwards' });
+      if (bare) return;
+      const reach = l => start + dur * l / len; // when the tip gets there
+      let side = Math.random() < 0.5 ? 1 : -1;
+      for (let l = rand(0.05, 0.2); l < len; l += rand(0.16, 0.28)) {
+        const p = path.getPointAtLength(l), q = path.getPointAtLength(Math.min(len, l + 0.01));
+        leaf(p.x, p.y, Math.atan2(q.y - p.y, q.x - p.x) * 180 / Math.PI + (side = -side) * 55, reach(l));
+      }
+      for (let n = Math.round(len * rand(1.2, 2.2)); n > 0; n--) {
+        const l = rand(0, len), p = path.getPointAtLength(l);
+        flower(p.x, p.y, Math.min(BLOOM_FALL - 0.4, reach(l) + rand(0.6, 2.2)));
+      }
+    };
+
+    // The digits as a graph: a node per clock that is part of a digit, a stroke where two clocks'
+    // hands point at each other, a stub where a hand points at nothing.
+    const center = c => [c.x + 0.5, c.y + 0.5];
+    const dirsOf = c => isBlank(c.pose) ? [] : poseAngles(c.pose).map(deg => DIRS[deg]).filter(Boolean);
+    const nodes = digits.flat().filter(c => dirsOf(c).length);
+    const strokes = [], stubs = [];
+    for (const c of nodes) {
+      for (const [dx, dy] of dirsOf(c)) {
+        const n = grid[c.y + dy]?.[c.x + dx];
+        if (n && dirsOf(n).some(([ex, ey]) => ex === -dx && ey === -dy)) {
+          if (c.x + c.y * 8 < n.x + n.y * 8) strokes.push([c, n]);
+        } else stubs.push([c, [c.x + 0.5 + dx * 0.45, c.y + 0.5 + dy * 0.45]]);
+      }
+    }
+    // when the vine reaches each clock: from the bottom of each digit, one stroke per 1/BLOOM_SPEED
+    const reached = new Map();
+    for (const clocks of digits) {
+      const bottom = clocks.filter(c => nodes.includes(c) && c.y === 2);
+      const start = rand(0.1, 0.5);
+      for (const c of bottom) {
+        reached.set(c, start + 0.5 / BLOOM_SPEED);
+        const [x, y] = center(c);
+        for (const phase of [0, Math.PI]) grow(strand([x, 3], [x, y], 1, 0.04, phase), 'vine', start, 0.5 / BLOOM_SPEED, phase > 0);
+      }
+    }
+    for (let i = 0; i < nodes.length; i++) {
+      for (const [a, b] of strokes) {
+        const ta = reached.get(a) ?? Infinity, tb = reached.get(b) ?? Infinity;
+        if (ta + 1 / BLOOM_SPEED < tb) reached.set(b, ta + 1 / BLOOM_SPEED);
+        if (tb + 1 / BLOOM_SPEED < ta) reached.set(a, tb + 1 / BLOOM_SPEED);
+      }
+    }
+    for (const [a, b] of strokes) {
+      const [from, to] = (reached.get(a) ?? 0) <= (reached.get(b) ?? 0) ? [a, b] : [b, a];
+      const t = reached.get(from) ?? 0;
+      for (const phase of [0, Math.PI]) grow(strand(center(from), center(to), 2, 0.05, phase), 'vine', t, 1 / BLOOM_SPEED, phase > 0);
+    }
+    for (const [c, tip] of stubs) {
+      grow(strand(center(c), tip, 1, 0.04, 0), 'vine', reached.get(c) ?? 0, 0.45 / BLOOM_SPEED);
+    }
+    // shoots round the rims, starting next to a stroke
+    for (const c of nodes) {
+      const dirs = dirsOf(c);
+      for (let n = 1 + Math.floor(Math.random() * 2); n > 0; n--) {
+        const [dx, dy] = dirs[Math.floor(Math.random() * dirs.length)];
+        const turn = Math.random() < 0.5 ? 1 : -1, sweep = turn * rand(90, 200);
+        const a = Math.atan2(dy, dx) * 180 / Math.PI + turn * rand(15, 40);
+        grow(tendril(...center(c), a, sweep), 'tendril', (reached.get(c) ?? 0) + rand(0.1, 0.6),
+          0.46 * Math.abs(sweep) * Math.PI / 180 / BLOOM_SPEED * 1.2);
+      }
+    }
+    plant.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 1500, delay: (BLOOM_FALL + 1.5) * 1000, fill: 'forwards' });
+  }
+
+  // ---- color plate ----
+  // The Color plate crazy show, after the plates of a color vision test: the hands fade out and every
+  // face fills up with small dots of different sizes in two colors of the same lightness, its own
+  // pair per face. The dots on the hands of the new time have the second color, so the time shows
+  // only to eyes that tell the two apart (both colors vary in brightness the same way, so brightness
+  // gives nothing away). Blank faces get background dots only. After a while to guess, the white
+  // hands fade in over the plate (settle()) and it fades away. One canvas over the faces, under the
+  // hands; each frame draws only the dots still growing, so there is little to draw at a time.
+  const PLATE_FILL = 4;          // seconds until the last dot is fully grown
+  const PLATE_GROW = 0.35;       // seconds a dot takes to grow
+  const PLATE_REVEAL = 8.5;      // the hands fade in
+  const PLATE_OUT = 1.2;         // after the reveal starts, the plate fades out (1.5s, .plate in CSS)
+  const PLATE_STRIPE = 0.17;     // half the width of a hand stripe, in face radii
+  const PLATE_SPACE = 0.012;     // space between dots, in face radii
+  const PLATE_LIGHT = 0.72;      // OKLCH lightness of both colors (same lightness: no brightness cue)
+  const PLATE_CHROMA = 0.11;
+  let plate = null;              // { canvas, frame } while the show plays
+
+  // Dots of different sizes packed into a unit circle at random ({ x, y, r } in face radii): darts
+  // that don't touch a dot already there stay, and they get smaller as the circle fills. A few
+  // packings are made once while the page is idle; each face uses one of them, turned and mirrored.
+  function packPlate() {
+    const dots = [], buckets = new Map(), CELL = 0.25, TRIES = 8000; // CELL ≥ two largest radii + space
+    const key = (i, j) => i * 16 + j;
+    const fits = (x, y, r) => {
+      const i = Math.floor((x + 1) / CELL), j = Math.floor((y + 1) / CELL);
+      for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+        for (const d of buckets.get(key(i + di, j + dj)) ?? []) {
+          if (Math.hypot(d.x - x, d.y - y) < d.r + r + PLATE_SPACE) return false;
+        }
+      }
+      return true;
+    };
+    for (let k = 0; k < TRIES; k++) {
+      const r = Math.max(0.025, rand(0.035, 0.085) * (1 - 0.6 * k / TRIES));
+      const a = rand(0, 2 * Math.PI), q = Math.sqrt(Math.random()) * (1 - r);
+      const x = q * Math.cos(a), y = q * Math.sin(a);
+      if (!fits(x, y, r)) continue;
+      const d = { x, y, r }, b = key(Math.floor((x + 1) / CELL), Math.floor((y + 1) / CELL));
+      dots.push(d);
+      if (!buckets.has(b)) buckets.set(b, []);
+      buckets.get(b).push(d);
+    }
+    return dots;
+  }
+  let platePackings = null;
+  if (!options.idle) (window.requestIdleCallback ?? setTimeout)(() => { platePackings ??= [packPlate(), packPlate(), packPlate()]; });
+
+  // OKLCH (lightness 0–1, chroma, hue in degrees) to a CSS rgb() color, with Björn Ottosson's OKLab
+  // matrices; channels outside sRGB are clipped.
+  function oklch(l, c, h) {
+    const a = c * cosd(h), b = c * sind(h);
+    const L = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+    const M = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+    const S = (l - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+    const srgb = x => {
+      x = Math.min(1, Math.max(0, x));
+      return Math.round(255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055));
+    };
+    return `rgb(${srgb(4.0767416621 * L - 3.3077115913 * M + 0.2309699292 * S)}, ` +
+      `${srgb(-1.2684380046 * L + 2.6097574011 * M - 0.3413193965 * S)}, ` +
+      `${srgb(-0.0041960863 * L - 0.7034186147 * M + 1.7076147010 * S)})`;
+  }
+
+  // Returns how long the show takes in seconds.
+  function colorPlate(gen) {
+    const later = (s, fn) => setTimeout(() => { if (gen === showGen) fn(); }, s * 1000);
+    const hhmm = shown ?? '0000', poses = posesOf(hhmm);
+    const clocks = digits.flat();
+    const s = cellSize(), dpr = devicePixelRatio || 1;
+    const R = (s - settings.gap) / 2 - 1; // a face's radius inside its rim
+    const r = box(root);
+    const canvas = document.createElement('canvas');
+    canvas.className = 'plate';
+    canvas.width = Math.round(8 * s * dpr);
+    canvas.height = Math.round(3 * s * dpr);
+    Object.assign(canvas.style, { left: r.left + 'px', top: r.top + 'px', width: 8 * s + 'px', height: 3 * s + 'px' });
+    stage.append(canvas);
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    platePackings ??= [packPlate(), packPlate(), packPlate()];
+
+    // every face its own background hue (24 hues, 15° apart, shuffled); its hands' hue lies far round
+    // the color wheel from it
+    const hues = clocks.map((_, i) => i * 15);
+    for (let i = hues.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [hues[i], hues[j]] = [hues[j], hues[i]];
+    }
+    const dots = [];
+    clocks.forEach((c, i) => {
+      const ground = hues[i], figure = ground + rand(95, 135) * (Math.random() < 0.5 ? -1 : 1);
+      const pose = poses.get(c);
+      const hands = isBlank(pose) ? [] : poseAngles(pose).map(deg => [cosd(deg), sind(deg)]);
+      const turn = rand(0, 360), flip = Math.random() < 0.5 ? -1 : 1;
+      const cx = (c.x + 0.5) * s, cy = (c.y + 0.5) * s;
+      const start = c.x * 0.12; // the faces start filling in a wave from the left
+      for (const d of randomFrom(platePackings)) {
+        const x = (d.x * cosd(turn) - d.y * sind(turn)) * flip, y = d.x * sind(turn) + d.y * cosd(turn);
+        // on a hand: closer than PLATE_STRIPE to the line from the center out toward the rim
+        const onHand = hands.some(([hx, hy]) => {
+          const along = Math.min(0.95, Math.max(0, x * hx + y * hy));
+          return Math.hypot(x - along * hx, y - along * hy) < PLATE_STRIPE;
+        });
+        dots.push({
+          x: cx + x * R, y: cy + y * R, r: d.r * R,
+          color: oklch(PLATE_LIGHT + randomFrom([-0.1, -0.05, 0, 0.04]), PLATE_CHROMA * rand(0.8, 1.2),
+            (onHand ? figure : ground) + rand(-8, 8)),
+          at: start + Math.random() * (PLATE_FILL - 7 * 0.12 - PLATE_GROW),
+        });
+      }
+    });
+    dots.sort((a, b) => a.at - b.at);
+
+    // the dots grow in, each frame drawing only those still growing (a bigger circle over the last)
+    const t0 = performance.now() + 400; // the hands have faded out by then
+    let next = 0, growing = [];
+    const frame = now => {
+      if (!plate) return;
+      const t = (now - t0) / 1000;
+      while (next < dots.length && dots[next].at <= t) growing.push(dots[next++]);
+      growing = growing.filter(d => {
+        const k = Math.min(1, (t - d.at) / PLATE_GROW);
+        ctx.fillStyle = d.color;
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, d.r * (1 - (1 - k) ** 3), 0, 2 * Math.PI);
+        ctx.fill();
+        return k < 1;
+      });
+      if (next < dots.length || growing.length) plate.frame = requestAnimationFrame(frame);
+    };
+    plate = { canvas, frame: requestAnimationFrame(frame) };
+
+    // the hands fade out and turn to the new pose while hidden; after the guessing time they fade in,
+    // white, as the time, and the plate fades away
+    for (const c of clocks) {
+      c.face.classList.add('blank');
+      for (const h of [c.hour, c.minute]) h.style.transition = 'opacity 0.4s ease, width 0.45s ease';
+    }
+    later(0.45, () => clocks.forEach(c => poseNow(c, poses.get(c))));
+    later(PLATE_REVEAL, () => settle(hhmm, poses));
+    later(PLATE_REVEAL + PLATE_OUT, () => { canvas.style.opacity = 0; });
+    const end = PLATE_REVEAL + PLATE_OUT + 1.5;
+    later(end, clearPlate);
+    return end;
+  }
+
+  // Remove the plate (end of the show, or a cancelled one).
+  function clearPlate() {
+    if (!plate) return;
+    cancelAnimationFrame(plate.frame);
+    plate.canvas.remove();
+    plate = null;
+  }
+
+  const SHOWS = {
+    rain: { name: 'Rain', steps: [
+      { angles: () => [45, 225], dur: 3, delay: c => c.x * 0.1, path: 'shortest' },
+      { angles: () => [45, 225], dur: 5, delay: c => c.x * 0.2, path: 'spin' },
+    ] },
+    ripple: { name: 'Ripple', steps: [
+      { angles: () => [90, 270], dur: 3, delay: () => 0, path: 'shortest' },
+      { angles: () => [90, 270], dur: 6, delay: c => dist(c) * 0.4, path: 'spin' },
+    ] },
+    scissors: { name: 'Scissors', steps: [
+      { angles: () => [0, 180], dur: 2.5, delay: c => c.y * 0.2, path: 'shortest' },
+      { angles: () => [90, 270], dur: 2.5, delay: c => c.y * 0.2, path: 'opposite' },
+      { angles: () => [180, 0], dur: 2.5, delay: c => c.y * 0.2, path: 'opposite' },
+      { angles: () => [270, 90], dur: 2.5, delay: c => c.y * 0.2, path: 'opposite' },
+    ] },
+    chaos: { name: 'Chaos', steps: [
+      { angles: () => [randomDeg(), randomDeg()], dur: 2.5, delay: () => Math.random() * 0.8, path: 'clockwise' },
+      { angles: () => [randomDeg(), randomDeg()], dur: 2.5, delay: () => Math.random() * 0.8, path: 'opposite' },
+      { angles: () => [randomDeg(), randomDeg()], dur: 2.5, delay: () => Math.random() * 0.8, path: 'clockwise' },
+    ] },
+    // Whole-screen scenes instead of steps: play(gen) starts one and returns its length in seconds.
+    // heavy: measured on a Raspberry Pi 3, the frame rate drops well below 50 fps (the step shows
+    // above stay smooth); Random (low power) skips these
+    billiard: { name: 'Billiard', play: () => { breakShot(); return BILLIARD_SECONDS; }, heavy: true },
+    saber: { name: 'Saber', play: saberDuel, heavy: true },
+    tron: { name: 'Tron', play: lightCycles, heavy: true },
+    tron2: { name: 'Tron 2', play: traceTime, heavy: true },
+    matrix: { name: 'Matrix', play: matrixRain, heavy: true },
+    // keepLinks: the hands keep showing the time, so magnet links stay
+    bougainvillea: { name: 'Bougainvillea', play: () => { bougainvillea(); return BLOOM_SECONDS; }, keepLinks: true, heavy: true },
+    // heavy without a Pi measurement: thousands of growing dots, kept out of Random (low power)
+    plate: { name: 'Color plate', play: colorPlate, heavy: true },
+    random: randomChoice(),
+    // lowPower: picks only shows without the heavy flag (too much for a Raspberry Pi 3)
+    randomLow: { ...randomChoice(), name: 'Random (low power)', lowPower: true },
+  };
+  CHOICES.show = SHOWS;
+  loadSettings();
+
+  // Play the selected show (or a random one). The clock stays on hold until it's done;
+  // tick() then lands on the time.
+  let showGen = 0;
+  function goCrazy() {
+    const gen = ++showGen;
+    const clocks = digits.flat();
+    clocks.forEach(c => { // stop Real face moves
+      c.realGen++;
+      c.face.classList.remove('dial');
+      c.face.classList.toggle('blank', isBlank(c.pose));
+    });
+    const pick = SHOWS[settings.show];
+    const id = !pick.random ? settings.show
+      : randomFrom(Object.keys(SHOWS).filter(id => !SHOWS[id].random && !(pick.lowPower && SHOWS[id].heavy)));
+    endScenes();
+    if (!SHOWS[id].keepLinks) retractHands();
+    if (SHOWS[id].play) { // a scene; Billiard keeps the hands showing the time while the balls roll
+      holdUntil = new Date(Date.now() + SHOWS[id].play(gen) * 1000);
+      busy((holdUntil - Date.now()) / 1000);
+      return;
+    }
+    clocks.forEach(c => c.face.classList.remove('blank'));
+    let at = 0;
+    for (const step of SHOWS[id].steps) {
+      const delays = clocks.map(step.delay);
+      setTimeout(() => {
+        if (gen !== showGen) return;
+        clocks.forEach((c, i) => {
+          if (c.isStick) return; // busy being the billiard cue stick
+          const [h, m] = step.angles(c);
+          turnTo(c, h, m, { path: step.path, duration: step.dur, ease: SHOW_EASE, delay: delays[i] });
+        });
+      }, at * 1000);
+      at += step.dur + Math.max(...delays);
+    }
+    holdUntil = new Date(Date.now() + at * 1000);
+    busy(at);
+  }
+
+  // Like Clock24.SetTime: show the current minute at startup, then switch to the
+  // next minute early enough that the animation lands just before it turns over.
+  // A crazy show for the coming minute starts that much earlier again.
+  let shown = null;
+  let holdUntil = 0; // a preview or show is playing
+  // the next crazy show: the How often setting it was planned for and the minute it lands on (ms)
+  let crazyPlan = null;
+  const crazyGap = ([min, max]) => (min + Math.floor(Math.random() * (max - min + 1))) * 60000;
+  const hhmmOf = d => String(d.getHours()).padStart(2, '0') + String(d.getMinutes()).padStart(2, '0');
+  function tick() {
+    const now = new Date();
+    checkEgg(now);
+    if (now < holdUntil) return;
+    const range = CRAZY[settings.crazy].between;
+    const t = new Date(now);
+    t.setSeconds(0, 0);
+    if (countdownMinute(t) && shown !== null) { // New Year: keep the old minute, then count down
+      if (now.getSeconds() >= 60 - COUNTDOWN) countdown(new Date(t.getTime() + 60000));
+      return;
+    }
+    if (range && crazyPlan?.crazy !== settings.crazy) { // started, or How often changed
+      crazyPlan = { crazy: settings.crazy, at: t.getTime() + crazyGap(range) };
+    }
+    const crazyNext = !!range && t.getTime() + 60000 >= crazyPlan.at; // late (on hold): at the next minute
+    const lead = Math.min(50, Math.ceil(settings.duration + maxDelay() + 2 + (crazyNext ? SHOW_SECONDS : 0)));
+    let crazy = false;
+    if (shown !== null && now.getSeconds() >= 60 - lead) {
+      t.setMinutes(t.getMinutes() + 1);
+      crazy = crazyNext;
+    }
+    const hhmm = hhmmOf(t);
+    if (hhmm !== shown || holdUntil) {
+      const isNew = hhmm !== shown; // not just landing after a preview or show
+      holdUntil = 0;
+      shown = hhmm;
+      if (crazy && isNew) {
+        if (root.offsetWidth) goCrazy();
+        else showTime(hhmm); // hidden (a card on another dashboard view): no show
+        crazyPlan.at = t.getTime() + crazyGap(range);
+      } else if (!(isNew && aprilFool(t))) showTime(hhmm);
+    }
+  }
+
+  // Preview: animate to a random time, then back to the real one.
+  function preview() {
+    ++showGen;
+    let hhmm;
+    do {
+      hhmm = Array.from({ length: 4 }, () => Math.floor(Math.random() * 10)).join('');
+    } while (hhmm === shown);
+    showTime(hhmm);
+    holdUntil = new Date(Date.now() + (settings.duration + maxDelay() + 1) * 1000);
+  }
+
+  // ---- easter eggs ----
+  // On some days the clock dresses up: checkEgg() (every tick) puts class egg-<id> on the stage, where
+  // the CSS has the looks, and runs the egg's start/stop. ?<id> (e.g. ?muertos, with options.url) turns one on any day.
+  const onDay = (d, month, ...days) => d.getMonth() === month - 1 && days.includes(d.getDate());
+  const EGGS = {
+    may4: { on: d => onDay(d, 5, 4), start: lightSabers },
+    muertos: { on: d => onDay(d, 11, 1, 2) },
+    newyear: { on: d => onDay(d, 12, 31) }, // the countdown: countdown() from tick()
+    christmas: { on: d => onDay(d, 12, 24, 25, 26), start: letItSnow, stop: () => stage.querySelector('.snow')?.remove() },
+    valentine: { on: d => onDay(d, 2, 14) },
+    aprilfools: { on: d => onDay(d, 4, 1) }, // the joke: aprilFool() from tick()
+  };
+  const forcedEgg = Object.keys(EGGS).find(id => options.url && new URLSearchParams(location.search).has(id)) ?? null;
+  let egg = null;
+  function checkEgg(now) {
+    const id = forcedEgg ?? Object.keys(EGGS).find(id => EGGS[id].on(now)) ?? null;
+    if (id !== egg) {
+      if (egg) {
+        stage.classList.remove('egg-' + egg);
+        EGGS[egg].stop?.();
+      }
+      egg = id;
+      if (egg) {
+        stage.classList.add('egg-' + egg);
+        EGGS[egg].start?.(now);
+      }
+    }
+    if (egg === 'christmas') { // the snow in the faces piles up during the day
+      const day = (now.getHours() * 60 + now.getMinutes()) / 1440;
+      stage.style.setProperty('--pile', (4 + 10 * day).toFixed(1) + '%');
+    }
+  }
+
+  // Random numbers that are the same all day (mulberry32 seeded with the date), so a reload keeps them.
+  function dayRandom(d) {
+    let a = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+    return () => {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // May the 4th: each clock's blades get a classic color.
+  const BLADES = ['#3d8bff', '#3dff6a', '#ff3b3b', '#b55cff'];
+  function lightSabers(now) {
+    const random = dayRandom(now);
+    for (const c of digits.flat()) c.face.style.setProperty('--blade', BLADES[Math.floor(random() * BLADES.length)]);
+  }
+
+  // Christmas: snowflakes falling over the clock, each a CSS animation (cheap on the Pi).
+  function letItSnow() {
+    const snow = document.createElement('div');
+    snow.className = 'snow';
+    for (let i = 0; i < 40; i++) {
+      const flake = document.createElement('i');
+      const size = rand(2, 5), fall = rand(9, 16);
+      Object.assign(flake.style, {
+        left: rand(0, 100) + '%', width: size + 'px', height: size + 'px', opacity: rand(0.4, 0.9),
+        animationDuration: fall + 's', animationDelay: -rand(0, fall) + 's',
+      });
+      snow.append(flake);
+    }
+    stage.append(snow);
+  }
+
+  // New Year's Eve: from 23:59:50 the middle digits count down 10…1, then at 00:00 fireworks burst
+  // over the clock while every hand spins once into the new time. ?newyear: every other minute.
+  const COUNTDOWN = 10;
+  const FIREWORKS_SECONDS = 6;
+  const BLANK = [7.5, 37.5];
+  const countdownMinute = t => egg === 'newyear' &&
+    (forcedEgg ? t.getMinutes() % 2 === 1 : t.getHours() === 23 && t.getMinutes() === 59);
+  // target: the coming minute (00:00)
+  function countdown(target) {
+    const gen = ++showGen;
+    const clocks = digits.flat();
+    endScenes();
+    retractHands();
+    const at = s => Math.max(0, target - (COUNTDOWN - s) * 1000 - Date.now()); // ms until second s
+    for (let n = COUNTDOWN; n >= 1; n--) {
+      setTimeout(() => {
+        if (gen !== showGen) return;
+        const text = String(n).padStart(2, '0');
+        digits.forEach((cs, d) => cs.forEach((c, i) => {
+          const pose = d === 1 || d === 2 ? DIGITS[+text[d - 1]][i] : BLANK;
+          c.face.classList.toggle('blank', isBlank(pose));
+          turnTo(c, hourToDeg(pose[0]), minuteToDeg(pose[1]), { path: 'shortest', duration: 0.5, ease: SHOW_EASE, delay: 0 });
+        }));
+      }, at(COUNTDOWN - n));
+    }
+    setTimeout(() => {
+      if (gen !== showGen) return;
+      const hhmm = hhmmOf(target), poses = posesOf(hhmm);
+      for (const c of clocks) {
+        c.pose = poses.get(c);
+        c.face.classList.toggle('blank', isBlank(c.pose));
+        turnTo(c, hourToDeg(c.pose[0]), minuteToDeg(c.pose[1]), { path: 'spin', duration: 3, ease: SHOW_EASE, delay: 0 });
+      }
+      landedOn = hhmm; // so tick()'s showTime() turns nothing more
+      fireworks();
+    }, at(COUNTDOWN));
+    shown = hhmmOf(target);
+    holdUntil = new Date(target.getTime() + FIREWORKS_SECONDS * 1000);
+    busy((holdUntil - Date.now()) / 1000);
+  }
+
+  const FIREWORK_COLORS = ['#ffd34d', '#ff5c5c', '#5cc8ff', '#7dff7a', '#ff7af0', '#ffffff'];
+  function fireworks() {
+    const s = cellSize(), r = box(root);
+    for (let b = 0; b < 10; b++) {
+      setTimeout(() => {
+        const x = r.left + rand(0.5, 7.5) * s, y = r.top + rand(0.3, 2.2) * s;
+        const color = FIREWORK_COLORS[Math.floor(Math.random() * FIREWORK_COLORS.length)];
+        for (let i = 0; i < 30; i++) {
+          const spark = document.createElement('div');
+          spark.className = 'firework';
+          Object.assign(spark.style, { left: x + 'px', top: y + 'px', background: color });
+          stage.append(spark);
+          const a = (i / 30) * 2 * Math.PI, d = rand(0.9, 1.3) * s;
+          const dx = Math.cos(a) * d, dy = Math.sin(a) * d;
+          spark.animate([ // bursts out, slows down and sinks
+            { transform: 'translate(0, 0)', opacity: 1 },
+            { transform: `translate(${dx * 0.85}px, ${dy * 0.85}px)`, opacity: 0.9, offset: 0.5 },
+            { transform: `translate(${dx}px, ${dy + s * 0.4}px) scale(0.4)`, opacity: 0 },
+          ], { duration: 1800, easing: 'cubic-bezier(0.2, 0.7, 0.4, 1)' }).onfinish = () => spark.remove();
+        }
+      }, b * 400);
+    }
+  }
+
+  // April Fools: once an hour (?aprilfools: every other minute) the clock lands on a wrong time, the
+  // hour off by one, and holds it for ~10 s before tick() turns it to the real one.
+  // t: the minute that is about to be shown. Returns whether the joke played.
+  let foolHour = null, foolMinute = 0;
+  function aprilFool(t) {
+    if (egg !== 'aprilfools') return false;
+    if (forcedEgg) {
+      if (t.getMinutes() % 2) return false;
+    } else {
+      if (foolHour !== t.getHours()) {
+        foolHour = t.getHours();
+        foolMinute = Math.floor(Math.random() * 60);
+      }
+      if (t.getMinutes() !== foolMinute) return false;
+    }
+    const hour = (t.getHours() + (Math.random() < 0.5 ? 23 : 1)) % 24;
+    showTime(String(hour).padStart(2, '0') + hhmmOf(t).slice(2));
+    holdUntil = new Date(Date.now() + (settings.duration + maxDelay() + 10) * 1000);
+    return true;
+  }
+
+  // Clicking the first clock calls options.onFirstClock (clock.html opens its options there);
+  // clicking the last one plays a crazy show.
+  if (options.onFirstClock) {
+    const trigger = digits[0][0].face;
+    trigger.classList.add('settings-trigger');
+    trigger.addEventListener('click', options.onFirstClock);
+  }
+  const crazyTrigger = digits[3][5].face;
+  crazyTrigger.classList.add('settings-trigger');
+  crazyTrigger.addEventListener('click', goCrazy);
+  if (options.transparent) stage.classList.add('transparent');
+
+  // ---- start ----
+  // Every clock starts in the neutral pose, then animates to the time.
+  let timer = 0, stopped = false;
+  if (!options.idle) {
+    digits.flat().forEach(clock => setPose(clock, NEUTRAL));
+    root.getBoundingClientRect();
+    root.classList.remove('no-anim');
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (stopped) return;
+      tick();
+      timer = setInterval(tick, 1000);
+    }));
+  }
+
+  return {
+    settings, // the live values; clock.html's options panel writes them directly
+    defaults: { ...DEFAULTS },
+    // every option table as [{ id, name }], in table order (the card's editor lists them)
+    choices: Object.fromEntries(Object.entries(CHOICES).map(([key, table]) =>
+      [key, Object.entries(table).map(([id, choice]) => ({ id, name: choice.name }))])),
+    // Takes new values (each through accept()); the Look applies at once, the rest at the next change.
+    set(values) {
+      for (const [key, value] of Object.entries(values)) if (key in settings) accept(key, value);
+      applyLook();
+    },
+    save, applyLook, busy, preview, goCrazy,
+    // Stops the clock for good (the card calls it when it's gone).
+    stop() { stopped = true; clearInterval(timer); showGen++; },
+  };
+}
+
+// The option tables as [{ id, name }] per setting and the default settings, without a running
+// clock (the card's editor).
+let idle = null;
+const idleClock = () => idle ??= gClockClock(document.createElement('div'), { idle: true });
+gClockClock.choices = () => idleClock().choices;
+gClockClock.defaults = () => ({ ...idleClock().defaults });
+window.gClockClock = gClockClock;
+})();

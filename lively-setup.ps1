@@ -26,7 +26,7 @@ $Contact = "https://github.com/$Repo" # the Contact field in LivelyInfo.json mar
 $Utf8 = New-Object System.Text.UTF8Encoding $false
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-# ---- the package: wallpaper\ plus clock.html ----
+# ---- the package: wallpaper\ plus clock.html and clock.js ----
 $work = Join-Path ([IO.Path]::GetTempPath()) ("gclock-lively-" + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory $work | Out-Null
 try {
@@ -44,6 +44,7 @@ try {
   $package = Join-Path $work 'package'
   Copy-Item (Join-Path $src 'wallpaper') $package -Recurse
   Copy-Item (Join-Path $src 'clock.html') $package
+  Copy-Item (Join-Path $src 'clock.js') $package
 
   # ---- Lively's wallpaper libraries ----
   # Classic installer: %LocalAppData%\Lively Wallpaper. Microsoft Store version: the same under

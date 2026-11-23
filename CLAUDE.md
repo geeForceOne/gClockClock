@@ -1,11 +1,14 @@
 # gClockClock
 
 ClockClock 24 style clock: 24 small analog clocks (4 digits × 2×3) whose hands form the time.
-Plain HTML/CSS/JS in one file, no build, no dependencies. Public repo (MIT).
+Plain HTML/CSS/JS, no build, no dependencies. Public repo (MIT).
 
 ## Files
 
-- `clock.html` — the whole app. Open it in a browser to run.
+- `clock.js` — the clock (engine and its CSS), built in a container element. Shared by all targets.
+- `clock.html` — the page: loads `clock.js`, plus the options panel and the kiosk bits. Open it in a
+  browser to run.
+- `gClockClock.js` + `hacs.json` — the Home Assistant dashboard card (HACS).
 - `wallpaper/` + `lively-setup.ps1` — Lively Wallpaper package and its installer.
 - `kiosk-setup.sh` — Raspberry Pi full-screen kiosk setup.
 - `docs/` — the notes below, plus README screenshots.
@@ -18,6 +21,7 @@ These are not loaded by default. Read the matching file first:
 - `docs/shows.md` — the scenes, `settle()`/`landedOn`, easter eggs (`EGGS`).
 - `docs/lively.md` — the wallpaper package, its Customize panel, `lively-setup.ps1`.
 - `docs/deploy.md` — GitHub Pages, self-update, `kiosk-setup.sh`, the Pi.
+- `docs/hacs.md` — the HA card, the stage (where shows put their layers), HACS.
 
 ## Core model
 
@@ -38,7 +42,10 @@ These are not loaded by default. Read the matching file first:
   To add an option, add a table entry before the Random entries (Path, Easing, Wave, Faces end with
   Random; Show ends with Random, then Random (low power)).
 - Mirror every clock setting change in the Lively package: `wallpaper/LivelyProperties.json` and
-  the `CLOCK_CHOICES` order in `wallpaper/index.html` (dropdowns send indexes).
+  the `CLOCK_CHOICES` order in `wallpaper/index.html` (dropdowns send indexes). A new setting key
+  also needs a field and label in the card's `getConfigForm()` (table entries show up by themselves).
+- `clock.js` never touches the window: show layers go in the stage (`stage.append()`, `position:
+  absolute`, `box()`), sizes in `cqw`/`cqh`. See `docs/hacs.md`.
 - Read resolved values from `active`, never `settings.x`. Every value goes through
   `accept(key, value)`; renamed ids go in `RENAMED`.
 - Keep `--gap` even (0–24px) so clock centers stay on whole pixels.
@@ -51,12 +58,13 @@ These are not loaded by default. Read the matching file first:
 ## Testing
 
 Node isn't installed, so JS can't be run or linted from the shell. Verify by opening `clock.html`
-in a browser. URL options override saved settings: `?path=spin&hand=ff8800&gap=8&clear`.
+in a browser, the card with `docs/card-test.html` (both over `python -m http.server`). URL options
+override saved settings: `?path=spin&hand=ff8800&gap=8&clear`.
 
 ## Git
 
 - One branch per change, off an up-to-date main. A push to main is a deploy (Pages; the Pi
-  reloads within ~15 min).
+  reloads within ~15 min; HACS users get it as an update).
 - Stop before merging or pushing so the user can test `clock.html` locally; say what was and
   wasn't checked.
 - Commit as `geeForceOne <1780268+geeForceOne@users.noreply.github.com>`, never a real name (public

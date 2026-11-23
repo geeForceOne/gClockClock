@@ -64,7 +64,8 @@ override saved settings: `?path=spin&hand=ff8800&gap=8&clear`.
 ## Git
 
 - One branch per change, off an up-to-date main. A push to main is a deploy (Pages; the Pi
-  reloads within ~15 min; Marketplace users get it as an update).
+  reloads within ~15 min). Marketplace users get only GitHub releases: after a push that changes
+  the card or the clock, offer a release (numbering in `docs/hacs.md`).
 - Stop before merging or pushing so the user can test `clock.html` locally; say what was and
   wasn't checked.
 - Commit as `geeForceOne <1780268+geeForceOne@users.noreply.github.com>`, never a real name (public

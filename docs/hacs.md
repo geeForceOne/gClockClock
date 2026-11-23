@@ -52,7 +52,12 @@ clock (24px in the page, 8px in the card).
 
 ## Releases
 
-No GitHub releases yet: HACS then offers the default branch (version = short commit hash), so a
-push to `main` also updates HACS users. With releases, HACS offers the last 5 releases plus the
-default branch ("just tags are not enough"). Users add the repo in the Marketplace as a custom
-repository (type Dashboard; needs a connected GitHub account); the HACS default list needs a separate submission.
+The Marketplace offers GitHub releases (the last 5, plus the default branch); just tags are not
+enough. So a push to `main` reaches the page, the Pi and Lively, but Marketplace users only get a
+new version when a release is published. Like andiamo: tag `vX.Y.Z`, title `X.Y.Z`, notes with
+`### New` and `### Fixed` sections; `X.Y.Z+1` for fixes, `X.Y+1.0` for new features. Publish it on
+`main` after the push, e.g. `gh release create v1.0.1 --title 1.0.1 --notes-file notes.md`.
+
+Users add the repo in the Marketplace as a custom repository (type Dashboard; needs a connected
+GitHub account), or with the My Home Assistant button in the README; the default list needs a
+separate submission.

@@ -109,8 +109,10 @@ const CSS = String.raw`
     pointer-events: none;
   }
   .face.dial::before { opacity: 1; }
-  .hand.minute { width: calc(var(--s) * 0.48 + var(--t) / 2); }
-  .hand.hour   { width: calc(var(--s) * 0.425 + var(--t) / 2); }
+  /* hand lengths follow the face (the cell minus --gap), not the cell: in a small card the fixed-px
+     gap is a big part of the cell, and cell-based hands reached past the rim */
+  .hand.minute { width: calc((var(--s) - var(--gap)) * 0.48 + var(--t) / 2); }
+  .hand.hour   { width: calc((var(--s) - var(--gap)) * 0.425 + var(--t) / 2); }
   /* magnet: reach all the way to the neighbor's center, so the stroke is one bar */
   .hand.reach  { width: calc(var(--s) + var(--t)); }
   /* magnet: the neighbor's hand reaches over this one, which shrinks to its pivot dot */

@@ -105,7 +105,8 @@ show.
 Black page and faces, white hands, thin (0.5px) gray `#555` rim. Colors are CSS variables on
 the stage (`.gclock`). Clock size `--s` fits 8 clocks across and 3 down in the stage, inside `--pad`. `--s` is the grid cell (all
 positions, hand reach and billiard math are in cell units); each face is `--gap` (4px, keep it even
-so centers stay on whole pixels) smaller with half of it as margin. Where CSS `round()` is
+so centers stay on whole pixels) smaller with half of it as margin. Hand lengths follow the face (`--s` minus `--gap`), so they
+stay inside the rim in a small card; the magnet `reach` and other stretched hands use the cell. Where CSS `round()` is
 supported, `--s` and hand thickness `--t` snap to even whole pixels and `.clock24` is positioned on
 a whole pixel, so joined hands from different clocks line up exactly (fractional sizes left visible
 notches at the joins).

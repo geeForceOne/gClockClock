@@ -60,4 +60,5 @@ new version when a release is published. Like andiamo: tag `vX.Y.Z`, title `X.Y.
 
 Users add the repo in the Marketplace as a custom repository (type Dashboard; needs a connected
 GitHub account), or with the My Home Assistant button in the README; the default list needs a
-separate submission.
+separate submission. `.github/workflows/validate.yml` runs the HACS action (category `plugin`) on
+every push and daily; the default list wants it passing.

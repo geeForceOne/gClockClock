@@ -58,7 +58,7 @@ new version when a release is published. Like andiamo: tag `vX.Y.Z`, title `X.Y.
 `### New` and `### Fixed` sections; `X.Y.Z+1` for fixes, `X.Y+1.0` for new features. Publish it on
 `main` after the push, e.g. `gh release create v1.0.1 --title 1.0.1 --notes-file notes.md`.
 
-Users add the repo in the Marketplace as a custom repository (type Dashboard; needs a connected
-GitHub account), or with the My Home Assistant button in the README; the default list needs a
-separate submission. `.github/workflows/validate.yml` runs the HACS action (category `plugin`) on
-every push and daily; the default list wants it passing.
+gClockClock is in the Marketplace's default list (hacs/default#14880, merged 2026-11-26), so users
+find it by searching the Marketplace, or open it with the My Home Assistant button in the README;
+no custom repository or GitHub account needed. `.github/workflows/validate.yml` runs the HACS
+action (category `plugin`) on every push and daily; the default list wants it passing.

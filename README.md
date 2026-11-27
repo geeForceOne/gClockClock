@@ -40,10 +40,8 @@ The clock as a card on a [Home Assistant](https://www.home-assistant.io/) dashbo
 
 [![Open your Home Assistant instance and open gClockClock in the Marketplace.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=geeForceOne&repository=gClockClock&category=plugin)
 
-1. Click the button above, or open **Settings → Marketplace** and add
-   `https://github.com/geeForceOne/gClockClock` as a custom repository with the type **Dashboard**.
-   Adding a custom repository needs a GitHub account connected in the Marketplace.
-2. Find **gClockClock** in the Marketplace and download it. Reload the browser when it asks.
+1. Click the button above, or open **Settings → Marketplace** and search for **gClockClock**.
+2. Download it. Reload the browser when it asks.
 3. Edit a dashboard → **Add card** → **gClockClock**.
 
 ### Settings
@@ -64,12 +62,19 @@ show: randomLow
 transparent: true
 ```
 
+### The HomeAssistant show
+
+In honor of Home Assistant, one crazy show is made for it: every face turns into a little house,
+and the hands grow into the tree inside before they turn back to the time. Pick **HomeAssistant**
+under Crazy, or let Random find it.
+
+![The HomeAssistant crazy show](docs/home-show.gif)
+
 ### Update
 
 The Marketplace shows an update when there is a new version.
 
-On Home Assistant before 2026.11 the Marketplace is the separate HACS integration; the steps are
-the same there.
+On Home Assistant before 2026.11, use the separate HACS integration; the steps are the same.
 
 gClockClock is not affiliated with or endorsed by Home Assistant or the Open Home Foundation.
 

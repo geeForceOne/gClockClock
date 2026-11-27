@@ -1989,7 +1989,7 @@ function gClockClock(stage, options = {}) {
   }
 
   // ---- home ----
-  // The Home crazy show, a nod to Home Assistant (after the house and tree of its logo): every face
+  // The HomeAssistant crazy show, a nod to Home Assistant (after the house and tree of its logo): every face
   // turns into a blue house, the hands (a dot by now) fall to its floor, the trunk grows up and
   // carries the dot to where the two branches leave it, the branches (the hands) grow out to their
   // rings. Then the trunk and rings fade and the branches slide back to the center as the hands of
@@ -2142,7 +2142,7 @@ function gClockClock(stage, options = {}) {
     // heavy without a Pi measurement: thousands of growing dots, kept out of Random (low power)
     plate: { name: 'Color plate', play: colorPlate, heavy: true },
     // heavy until measured on the Pi
-    home: { name: 'Home', play: home, heavy: true },
+    home: { name: 'HomeAssistant', play: home, heavy: true },
     random: randomChoice(),
     // lowPower: picks only shows without the heavy flag (too much for a Raspberry Pi 3)
     randomLow: { ...randomChoice(), name: 'Random (low power)', lowPower: true },

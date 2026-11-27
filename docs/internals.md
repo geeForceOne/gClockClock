@@ -78,7 +78,7 @@ whose pose changed. `clock.realGen` cancels a stale second half; `goCrazy()` bum
 ## Crazy shows
 
 `SHOWS` maps ids to `{ name, steps }` or, for a whole-screen scene, `{ name, play(gen) }`, where
-`play` starts the scene and returns its length in seconds (Billiard, Saber, Tron, Tron 2, Matrix, Bougainvillea, Color plate, Home).
+`play` starts the scene and returns its length in seconds (Billiard, Saber, Tron, Tron 2, Matrix, Bougainvillea, Color plate, HomeAssistant).
 `steps` is a list of `{ angles(clock), dur, delay(clock), path }` played in order by `goCrazy()` via
 `turnTo()` (which takes raw angles, unlike `setPose`). Random is the last entry in the tables that
 have one (Path, Easing, Wave, Faces, Show); in Show it is followed by Random (low power),

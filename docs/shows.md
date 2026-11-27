@@ -128,9 +128,9 @@ frame draws only the dots still growing (a bigger circle over the last). At `PLA
 `settle()` fades the white hands in over the plate, then the canvas fades out; `clearPlate()` (from
 `endScenes()`) removes it. Flagged `heavy` without a Pi measurement.
 
-## Home
+## HomeAssistant
 
-Home (`SHOWS.home`, `home(gen)`) is a nod to Home Assistant, after the house and tree of its logo
+HomeAssistant (`SHOWS.home`, `home(gen)`; the id stays `home` so saved settings keep working) is a nod to Home Assistant, after the house and tree of its logo
 (geometry from the Material Design `home-assistant` icon; the README says gClockClock isn't
 affiliated). It builds the time in `shown`. Every face turns into a blue house (`--home`) in a wave
 from the left (`HOME_WAVE`): an inline `clip-path` morphs between two polygons with the same number
